@@ -1,0 +1,57 @@
+// Copyright (c) 2026 StockiestThree9
+#pragma once
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace zse {
+using Bytes = std::vector<uint8_t>;
+struct Error : std::runtime_error { using std::runtime_error::runtime_error; };
+uint32_t hashName(const std::string& name);
+Bytes readFile(const std::string& path, size_t limit = 128 * 1024 * 1024);
+void writeFile(const std::string& path, const Bytes& bytes);
+
+// A save is a byte-preserving document. Only existing value words may change.
+class Save {
+public:
+    explicit Save(Bytes data);
+    bool bigEndian() const { return be_; }
+    uint32_t version() const { return version_; }
+    const Bytes& bytes() const { return data_; }
+    const Bytes& original() const { return original_; }
+    const std::map<uint32_t, std::vector<size_t>>& fields() const { return fields_; }
+    size_t count(uint32_t hash) const;
+    size_t count(const std::string& name) const { return count(hashName(name)); }
+    uint32_t word(uint32_t hash, size_t index = 0) const;
+    int32_t integer(uint32_t hash, size_t index = 0) const;
+    float real(uint32_t hash, size_t index = 0) const;
+    std::string string(uint32_t hash, size_t width, size_t index = 0) const;
+    void word(uint32_t hash, size_t index, uint32_t value);
+    void integer(uint32_t hash, size_t index, int32_t value);
+    void real(uint32_t hash, size_t index, float value);
+    void string(uint32_t hash, size_t width, size_t index, const std::string& value);
+    void edit(const std::string& label, const std::function<void()>& action);
+    bool undo();
+    bool redo();
+    bool dirty() const { return data_ != original_; }
+    size_t changedWords() const;
+    size_t undoCount() const { return cursor_; }
+    std::string undoLabel() const;
+    void accepted();
+private:
+    struct Patch { size_t offset; uint32_t before, after; };
+    struct Edit { std::string label; std::vector<Patch> patches; };
+    Bytes data_, original_;
+    bool be_ = false, editing_ = false;
+    uint32_t version_ = 0;
+    std::map<uint32_t, std::vector<size_t>> fields_;
+    std::vector<Edit> edits_;
+    size_t cursor_ = 0;
+    size_t offset(uint32_t hash, size_t index) const;
+    uint32_t read(size_t offset) const;
+    void put(size_t offset, uint32_t value);
+};
+}

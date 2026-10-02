@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a problem with the beta
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep an independent backup before editing. Do not upload saves, account identifiers, or extracted Nintendo files to public issues.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: App, Switch firmware, Atmosphere and BOTW versions
+    validations:
+      required: true
+  - type: input
+    id: launch
+    attributes:
+      label: Console and launch method
+      placeholder: OLED, Sphaira in application mode over BOTW
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Save type
+      options:
+        - Not related to a save
+        - Normal / Profile 1
+        - Profile 2
+        - Master Mode
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps, expected result, and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message or additional details

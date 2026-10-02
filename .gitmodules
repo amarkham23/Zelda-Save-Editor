@@ -1,0 +1,4 @@
+[submodule "third_party/libpulsar"]
+	path = third_party/libpulsar
+	url = https://github.com/p-sam/switch-libpulsar.git
+	branch = develop

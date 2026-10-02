@@ -1,0 +1,12 @@
+/build/
+/host-data/
+/preview/
+/*.elf
+/*.nro
+/*.nacp
+/*.map
+tests/*.exe
+field-report.tsv
+*.sav
+*.pack
+*.bfsar

@@ -1,0 +1,38 @@
+// Copyright (c) 2026 StockiestThree9
+#pragma once
+#include "save.hpp"
+#include <memory>
+#include <unordered_map>
+
+namespace zse {
+Bytes decompress(const Bytes& data);
+std::map<std::string, Bytes> unpackSarc(const Bytes& data);
+enum class Kind { Unknown, Bool, Int, UInt, Float, String, Vec2, Vec3, Vec4 };
+struct Field {
+    std::string name;
+    uint32_t hash=0;
+    Kind kind=Kind::Unknown;
+    size_t width=1;
+    bool array=false;
+};
+struct Metadata {
+    std::map<uint32_t,Field> fields;
+    std::map<std::string,std::string> names;
+    std::map<std::string,std::string> locations;
+    void loadGameData(const Bytes& bootup);
+    void loadMessages(const Bytes& languagePack);
+    std::string itemName(const std::string& id) const;
+    std::vector<std::string> itemIds() const;
+};
+// Archive readers consume data from the user's installed game at runtime.
+struct ByNode {
+    uint8_t type=0xff;
+    uint32_t number=0;
+    std::string text;
+    std::vector<ByNode> array;
+    std::map<std::string,ByNode> dict;
+    const ByNode* get(const std::string& key) const;
+};
+ByNode readByml(const Bytes& bytes);
+std::map<std::string,std::string> readMsbt(const Bytes& bytes);
+}
