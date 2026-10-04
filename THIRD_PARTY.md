@@ -17,6 +17,7 @@ Application author: **StockiestThree9**.
 | libjpeg-turbo / Independent JPEG Group | JPEG support | IJG, BSD and zlib notices |
 | libwebp | Image support used by SDL2_image | BSD |
 | zlib | Compression support | zlib |
+| Zstandard | TOTK resource decompression | BSD 3-Clause (chosen dual-license option) |
 | bzip2 | Compression support used by FreeType | bzip2 license |
 | Mesa / nouveau | Graphics backend | MIT and component-specific notices |
 | GCC runtime and newlib | Toolchain runtime | GCC Runtime Library Exception / newlib component notices |
@@ -31,6 +32,7 @@ The `licenses/` directory accompanies the binary package. Source for libpulsar i
 - Marc Robledo's BOTW web editor: feature organization and publicly visible behavior. No implementation or static game-data tables imported.
 - ZeldaMods: Save Files, SARC, BYML, MSBT and Yaz0 format descriptions. The readers in this project are new implementations.
 - Sphaira: verified that qlaunch's sound archive can be mounted and decoded locally. No Sphaira application code is included.
+- TOTK: [TotkMods SAV specification](https://github.com/TotkMods/Research/blob/7e85f7441ec35239a403e8a3b486eba2b7bd6b9e/Formats/Sav/Readme.md) and field identifiers / observable behavior in Marc Robledo's TOTK editor. The binary reader and editing model are original implementations. No reference editor implementation, static game tables or downloadable test save is included.
 
 ## Console-owned resources
 

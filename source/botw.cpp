@@ -13,14 +13,22 @@ static bool starts(const std::string& s,const std::string& prefix){return s.comp
 static bool floating(Kind kind){return kind==Kind::Float||kind==Kind::Vec2||kind==Kind::Vec3||kind==Kind::Vec4;}
 std::string readable(const std::string& name){std::string out;char prev=0;for(char ch:name){if(ch=='_'){out+=' ';prev=0;continue;}if(std::isupper(static_cast<unsigned char>(ch))&&(std::islower(static_cast<unsigned char>(prev))||std::isdigit(static_cast<unsigned char>(prev))))out+=' ';out+=ch;prev=ch;}return out;}
 std::string displayValue(const Save& s,const EditField& e){
+    if(!e.choices.empty()){auto value=s.word(e.field.hash,e.index);for(auto& choice:e.choices)if(choice.first==value)return choice.second;return "Unrecognized bonus";}
     auto k=e.field.kind;
     if(k==Kind::String)return s.string(e.field.hash,e.field.width*4,e.index);
     if(k==Kind::Bool)return s.word(e.field.hash,e.index)?"On":"Off";
-    double value=floating(k)?s.real(e.field.hash,e.index):k==Kind::UInt?s.word(e.field.hash,e.index):s.integer(e.field.hash,e.index);
+    double value=floating(k)?double(s.real(e.field.hash,e.index)):k==Kind::UInt?double(s.word(e.field.hash,e.index)):double(s.integer(e.field.hash,e.index));
     value/=e.scale;
     std::ostringstream out;if(e.whole)out<<std::fixed<<std::setprecision(0)<<std::floor(value);else out<<std::setprecision(7)<<value;return out.str();
 }
 void setValue(Save& s,const EditField& e,const std::string& text){
+    if(!e.choices.empty()){for(auto& choice:e.choices)if(text==std::to_string(choice.first)){s.edit(e.label,[&]{
+        s.word(e.field.hash,e.index,choice.first);
+        if(s.game()==Game::Totk&&e.field.name.find(".Content.Effect.Type")!=std::string::npos){
+            auto valueName=e.field.name.substr(0,e.field.name.size()-4)+"Value";auto hash=s.fieldHash(valueName);
+            if(s.count(hash)>e.index&&choice.first!=s.fieldHash("None")&&s.integer(hash,e.index)<0)s.integer(hash,e.index,1);
+        }
+    });return;}throw Error("Choose one of the listed options.");}
     if(e.field.kind==Kind::String){s.edit(e.label,[&]{s.string(e.field.hash,e.field.width*4,e.index,text);});return;}
     if(e.field.kind==Kind::Bool){s.edit(e.label,[&]{s.word(e.field.hash,e.index,text=="1"?1:0);});return;}
     size_t end=0;double value=0;try{value=std::stod(text,&end);}catch(...){throw Error("Enter a number.");}
@@ -28,9 +36,11 @@ void setValue(Save& s,const EditField& e,const std::string& text){
     if(e.whole&&value!=std::floor(value))throw Error("Enter a whole number.");
     if(value<e.minimum||value>e.maximum)throw Error("Value must be between "+std::to_string(int64_t(e.minimum))+" and "+std::to_string(int64_t(e.maximum))+".");
     value*=e.scale;
+    if(e.field.name=="PlayerStatus.Life"&&s.count("PlayerStatus.MaxLife")&&value>s.integer(s.fieldHash("PlayerStatus.MaxLife")))throw Error("Current hearts cannot exceed maximum hearts.");
     bool isFloat=floating(e.field.kind);
     if(!isFloat&&(value!=std::floor(value)||value<(e.field.kind==Kind::UInt?0.0:-2147483648.0)||value>(e.field.kind==Kind::UInt?4294967295.0:2147483647.0)))throw Error("That value does not fit this field.");
     s.edit(e.label,[&]{
+        if(e.field.name=="PlayerStatus.MaxLife"&&s.count("PlayerStatus.Life")&&s.integer(s.fieldHash("PlayerStatus.Life"))>value)s.integer(s.fieldHash("PlayerStatus.Life"),0,int32_t(value));
         if(e.field.name=="StaminaMax"&&e.scale==1000&&s.count("StaminaCurrentMax")){
             float bonus=std::max(0.0f,s.real(hashName("StaminaCurrentMax"))-s.real(e.field.hash));
             s.real(hashName("StaminaCurrentMax"),0,std::min(5000.0f,float(value)+bonus));

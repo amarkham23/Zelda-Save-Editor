@@ -1,0 +1,88 @@
+// Copyright (c) 2026 StockiestThree9. MIT.
+#include "totk.hpp"
+#include <algorithm>
+#include <cstdio>
+namespace zse {
+namespace {
+const char* sections[]={"Weapon","Bow","Arrow","Shield","Armor","Material","Food","KeyItem","SpecialParts"};
+std::string prefix(ItemGroup group){return std::string("Pouch.")+sections[int(group)]+".Content.";}
+bool equipment(ItemGroup group){return group==ItemGroup::Weapons||group==ItemGroup::Bows||group==ItemGroup::Shields;}
+void options(EditField& field,std::initializer_list<const char*> values){
+ const std::map<std::string,std::string> names={{"None","None"},{"AttackUp","Attack up"},{"AttackUpPlus","Attack up +"},{"DurabilityUp","Durability up"},{"DurabilityUpPlus","Durability up +"},{"FinishBlow","Critical hit"},{"LongThrow","Long throw"},{"RapidFire","Quick shot"},{"FiveWay","Five-shot burst"},{"GuardUp","Shield guard up"},{"GuardUpPlus","Shield guard up +"}};
+ for(auto value:values){auto found=names.find(value);field.choices.push_back({totk::hash(value),found==names.end()?readable(value):found->second});}
+}
+}
+void Totk::definitions(const Save& s){
+ metadata.fields.clear();
+ auto add=[&](const std::string& name){auto h=totk::hash(name);auto it=s.types().find(h);if(it==s.types().end()||!s.count(h))return;
+  auto t=it->second;Field f{name,h,Kind::Unknown,1,bool(t&1)};
+  switch(t&~1U){case 0:f.kind=Kind::Bool;break;case 2:f.kind=Kind::Int;break;case 4:f.kind=Kind::Float;break;case 6:case 20:f.kind=Kind::UInt;break;case 8:f.kind=Kind::Vec2;f.width=2;break;case 10:f.kind=Kind::Vec3;f.width=3;break;case 12:case 14:case 16:f.kind=Kind::String;f.width=(t&~1U)==12?4:(t&~1U)==14?8:16;break;default:return;}
+  metadata.fields.emplace(h,f);
+ };
+ for(auto name:{"PlayerStatus.MaxLife","PlayerStatus.Life","PlayerStatus.CurrentRupee","PlayerStatus.MaxStamina","PlayerStatus.MaxEnergy","HorseInnMemberPoint","PlayerStatus.SavePos"})add(name);
+ for(auto section:sections){auto p=std::string("Pouch.")+section;add(p+".ValidNum");
+  for(auto property:{"Name","Life","StockNum","Effect.Type","Effect.Value","ColorVariation","Combined.Name","Combined.Life","ExtraLife","RecordExtraLife","LifeRecover","Effect.Level","Effect.Time","Price"})add(p+".Content."+property);
+ }
+ for(unsigned i=0;i<152;++i){char name[80];snprintf(name,sizeof(name),"DungeonState.Dungeon%03u",i);add(name);snprintf(name,sizeof(name),"ArrivalPointState.CheckPoint%03u",i);add(name);}
+ for(unsigned i=1;i<=15;++i){char name[80];snprintf(name,sizeof(name),"IsActivateCannon.Tower%02u",i);add(name);}
+}
+EditField Totk::field(const std::string& name,const std::string& label,size_t index) const{
+ auto i=metadata.fields.find(totk::hash(name));if(i==metadata.fields.end())throw Error("That TOTK field is unavailable in this save.");
+ EditField f;f.field=i->second;f.index=index;f.label=label;f.whole=f.field.kind!=Kind::Float&&f.field.kind!=Kind::Vec2&&f.field.kind!=Kind::Vec3;f.minimum=0;f.maximum=999999;
+ if(name.find("DungeonState.")==0)options(f,{"Hidden","Appear","Open","Enter","Clear"});
+ if(name.find("ArrivalPointState.")==0)options(f,{"Close","Open"});
+ if(name.find("ColorVariation")!=std::string::npos)options(f,{"None","Blue","Red","Yellow","White","Black","Purple","Green","LightBlue","Navy","Orange","Pink","Crimson","LightYellow","Brown","Gray"});
+ if(name=="Pouch.Weapon.Content.Effect.Type")options(f,{"None","AttackUp","AttackUpPlus","DurabilityUp","DurabilityUpPlus","FinishBlow","LongThrow"});
+ if(name=="Pouch.Bow.Content.Effect.Type")options(f,{"None","AttackUp","AttackUpPlus","DurabilityUp","DurabilityUpPlus","RapidFire","FiveWay"});
+ if(name=="Pouch.Shield.Content.Effect.Type")options(f,{"None","DurabilityUp","DurabilityUpPlus","GuardUp","GuardUpPlus"});
+ return f;
+}
+std::vector<EditField> Totk::stats(const Save& s) const{
+ struct Definition {const char* key;const char* label;const char* unit;double scale,min,max;bool whole;};
+ const Definition defs[]={
+  {"PlayerStatus.CurrentRupee","Rupees","rupees",1,0,999999,true},
+  {"PlayerStatus.MaxLife","Maximum hearts","hearts",4,3,40,true},
+  {"PlayerStatus.Life","Current hearts","hearts",4,0,40,false},
+  {"PlayerStatus.MaxStamina","Maximum stamina wheels","wheels",1000,1,3,false},
+  {"PlayerStatus.MaxEnergy","Battery cells","cells",1000,3,48,true},
+  {"Pouch.Weapon.ValidNum","Weapon slots","",1,9,20,true},
+  {"Pouch.Bow.ValidNum","Bow slots","",1,5,14,true},
+  {"Pouch.Shield.ValidNum","Shield slots","",1,4,20,true},
+  {"HorseInnMemberPoint","Pony Points","points",1,0,999999,true}
+ };
+ std::vector<EditField> result;for(auto& d:defs)if(s.count(d.key)){auto f=field(d.key,d.label);f.unit=d.unit;f.scale=d.scale;f.minimum=d.min;f.maximum=d.max;f.whole=d.whole;if(std::string(d.key)=="PlayerStatus.MaxEnergy")f.description="3 cells per battery · 48 cells fills both rows";result.push_back(f);}return result;
+}
+std::vector<Item> Totk::items(const Save& s) const{
+ std::vector<Item> result;for(unsigned group=0;group<9;++group){auto key=prefix(ItemGroup(group))+"Name";auto h=totk::hash(key);for(size_t i=0;i<s.count(h)/16;++i){auto name=s.string(h,64,i);if(!name.empty())result.push_back({name,group*4096+i,i,ItemGroup(group)});}}return result;
+}
+std::vector<EditField> Totk::itemFields(const Save& s,const Item& item) const{
+ std::vector<EditField> result;auto p=prefix(item.group);
+ auto add=[&](const char* suffix,const char* label,const char* unit="",double scale=1){auto key=p+suffix;if(!s.count(key)||item.ordinal>=s.count(totk::hash(key)))return;auto f=field(key,label,item.ordinal);f.unit=unit;f.scale=scale;f.whole=true;result.push_back(f);};
+ if(equipment(item.group)){
+  add("Life","Durability","durability");add("Effect.Type","Equipment bonus");
+  if(s.count(p+"Effect.Type")>item.ordinal&&s.word(totk::hash(p+"Effect.Type"),item.ordinal)!=totk::hash("None"))add("Effect.Value","Bonus strength");
+  bool fused=s.count(p+"Combined.Name")/16>item.ordinal&&!s.string(totk::hash(p+"Combined.Name"),64,item.ordinal).empty();
+  if(fused){add("Combined.Life","Fused item durability","durability");add("ExtraLife","Remaining fuse bonus","durability");}
+ }else if(item.group==ItemGroup::Armor)add("ColorVariation","Dye color");
+ else {if(s.count(p+"StockNum")>item.ordinal&&s.integer(totk::hash(p+"StockNum"),item.ordinal)>=0)add("StockNum","Quantity");if(!result.empty())result.front().maximum=999;
+  if(item.group==ItemGroup::Food){auto before=result.size();add("LifeRecover","Hearts restored","hearts",4);if(result.size()>before)result.back().whole=false;add("Effect.Level","Effect strength");add("Effect.Time","Effect duration","seconds");add("Price","Sell value","rupees");}
+ }
+ return result;
+}
+std::string Totk::itemValue(const Save& s,const Item& item) const{
+ auto fields=itemFields(s,item);if(fields.empty())return "Owned";auto f=fields.front();auto shown=displayValue(s,f);if(equipment(item.group))return shown+" durability";if(item.group==ItemGroup::Armor)return shown;return "× "+shown;
+}
+std::string Totk::itemDetail(const Save& s,const Item& item) const{
+ auto key=prefix(item.group)+"Combined.Name";if(s.count(key)/16>item.ordinal){auto id=s.string(totk::hash(key),64,item.ordinal);if(!id.empty())return "Fused: "+metadata.itemName(id);}return item.group==ItemGroup::Unknown?"Zonai devices":groupName(item.group);
+}
+std::vector<EditField> Totk::matching(const Save& s,const std::function<bool(const Field&)>& predicate) const{
+ std::vector<EditField> result;for(auto& pair:metadata.fields){auto& f=pair.second;if(!s.count(f.hash)||!predicate(f))continue;
+  // Preserve IDs and enum fields that lack a defined choice list in this build.
+  auto e=field(f.name,readable(f.name));if(f.kind==Kind::String||((s.types().at(f.hash)&~1U)==6&&e.choices.empty()))continue;
+  e.description=f.name;if(f.kind==Kind::Vec3){e.minimum=-100000;e.maximum=100000;}result.push_back(e);
+ }std::sort(result.begin(),result.end(),[](auto& a,auto& b){return a.field.name<b.field.name;});return result;
+}
+std::vector<EditField> Totk::elements(const Save& s,const Field& f) const{
+ std::vector<EditField> result;for(size_t i=0;i<s.count(f.hash);++i){auto e=field(f.name,"Entry "+std::to_string(i+1),i);if(f.kind==Kind::Vec3){e.label=std::array<const char*,3>{"East / west (X)","Height (Y)","North / south (Z)"}[i%3];e.minimum=-100000;e.maximum=100000;}result.push_back(e);}return result;
+}
+}

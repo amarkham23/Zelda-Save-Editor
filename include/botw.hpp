@@ -10,6 +10,7 @@ struct EditField {
     std::string unit;
     double scale=1,minimum=-2147483648.0,maximum=2147483647.0;
     bool whole=false;
+    std::vector<std::pair<uint32_t,std::string>> choices;
 };
 std::string displayValue(const Save& save,const EditField& field);
 void setValue(Save& save,const EditField& field,const std::string& text);

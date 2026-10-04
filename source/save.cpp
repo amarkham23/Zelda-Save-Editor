@@ -1,5 +1,6 @@
 // Copyright (c) 2026 StockiestThree9
 #include "save.hpp"
+#include "totk_format.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -34,6 +35,24 @@ void writeFile(const std::string& path, const Bytes& bytes) {
     if (f.fail()) throw Error("Could not close " + path);
 }
 Save::Save(Bytes data) : data_(std::move(data)), original_(data_) {
+    if(data_.size()>=12&&read(0)==0x01020304){
+        game_=Game::Totk;totk::Save parsed(data_);version_=parsed.version();
+        if(version_!=0x46c3c8&&version_!=0x47e0f4&&version_!=0x49e946)throw Error("This TOTK save revision is not supported yet.");
+        for(auto& pair:parsed.fields()){
+            auto& f=pair.second;uint32_t type=uint32_t(f.type);types_[pair.first]=type;
+            // Map only directly editable 32-bit cells. Packed booleans, binary
+            // payloads, wide strings and 64-bit keys remain preserved and hidden.
+            if(type==1||type>=18)continue;
+            size_t cells=type==0?1:f.width/4*f.count;
+            if(type==0)cells=1;
+            auto& offsets=fields_[pair.first];offsets.reserve(cells);
+            for(size_t i=0;i<cells;++i){offsets.push_back(f.offset+i*4);editableOffsets_.push_back(f.offset+i*4);}
+        }
+        // UInt/UIntArray are also direct cells (types 20/21).
+        for(auto& pair:parsed.fields())if(pair.second.type==totk::Type::UInt||pair.second.type==totk::Type::UIntArray){auto& f=pair.second;for(size_t i=0;i<f.count;++i){fields_[pair.first].push_back(f.offset+i*4);editableOffsets_.push_back(f.offset+i*4);}}
+        std::sort(editableOffsets_.begin(),editableOffsets_.end());editableOffsets_.erase(std::unique(editableOffsets_.begin(),editableOffsets_.end()),editableOffsets_.end());
+        return;
+    }
     if (data_.size() < 24 || data_.size() > 16*1024*1024 || (data_.size()-16)%8) throw Error("This is not a complete BOTW save.");
     if (data_[8]==0 && data_[11]==1) be_=true;
     else if (!(data_[8]==1 && data_[11]==0)) throw Error("Invalid save byte order.");
@@ -45,8 +64,10 @@ Save::Save(Bytes data) : data_(std::move(data)), original_(data_) {
         uint32_t h=read(p);
         if (h==0xffffffff) throw Error("Unexpected end marker inside save.");
         fields_[h].push_back(p+4);
+        editableOffsets_.push_back(p+4);
     }
 }
+uint32_t Save::fieldHash(const std::string& name) const{return game_==Game::Totk?totk::hash(name):hashName(name);}
 uint32_t Save::read(size_t p) const {
     if (p>data_.size() || data_.size()-p<4) throw Error("Save offset is out of bounds.");
     uint32_t v=0;
@@ -93,7 +114,7 @@ void Save::edit(const std::string& label,const std::function<void()>& action) {
     try { action(); } catch (...) { data_.swap(before);editing_=false;throw; }
     editing_=false;
     Edit e{label,{}};
-    for(size_t p=16;p+4<=data_.size()-4;p+=8) {
+    for(size_t p:editableOffsets_) {
         if(std::memcmp(&before[p],&data_[p],4)==0)continue;
         uint32_t old=0;for(int i=0;i<4;++i)old|=uint32_t(before[p+i])<<(be_?(3-i)*8:i*8);
         e.patches.push_back({p,old,read(p)});
@@ -106,6 +127,6 @@ void Save::edit(const std::string& label,const std::function<void()>& action) {
 bool Save::undo() { if(!cursor_)return false;for(auto& p:edits_[--cursor_].patches)put(p.offset,p.before);return true; }
 bool Save::redo() { if(cursor_==edits_.size())return false;for(auto& p:edits_[cursor_++].patches)put(p.offset,p.after);return true; }
 std::string Save::undoLabel() const { return cursor_?edits_[cursor_-1].label:""; }
-size_t Save::changedWords() const { size_t n=0;for(size_t p=16;p+4<=data_.size()-4;p+=8)n+=std::memcmp(&original_[p],&data_[p],4)!=0;return n; }
+size_t Save::changedWords() const { size_t n=0;for(size_t p:editableOffsets_)n+=std::memcmp(&original_[p],&data_[p],4)!=0;return n; }
 void Save::accepted() { original_=data_;edits_.clear();cursor_=0; }
 }

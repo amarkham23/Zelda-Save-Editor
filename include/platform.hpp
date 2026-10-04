@@ -9,6 +9,7 @@
 
 namespace zse {
 constexpr uint64_t BotwId=0x01007ef00011e000ULL;
+constexpr uint64_t TotkId=0x0100f2c0115b6000ULL;
 struct Profile { uint64_t low=0,high=0; std::string name; Bytes image; };
 struct Slot {
     std::string folder,label;
@@ -18,6 +19,7 @@ struct Slot {
     bool automatic=false;
     int gameProfile=0;
     bool master=false;
+    Game game=Game::Botw;
     std::string profileLabel() const {return gameProfile?"Profile "+std::to_string(gameProfile):"Additional save";}
     std::string identity() const {return profileLabel()+" · "+label;}
 };
@@ -42,12 +44,12 @@ public:
     void saveSettings();
     std::optional<std::string> keyboard(const std::string& title,const std::string& initial,size_t max,bool numeric=false,bool decimal=false);
     std::vector<Profile> profiles();
-    std::vector<Slot> slots(const Profile& profile);
+    std::vector<Slot> slots(const Profile& profile,Game game=Game::Botw);
     Save open(const Profile& profile,const Slot& slot);
     std::string commit(const Profile& profile,const Slot& slot,Save& save);
     SwapInfo swapInfo(const Profile& profile);
     std::string swapProfiles(const Profile& profile,bool resume=false);
-    void loadMetadata(Metadata& data);
+    void loadMetadata(Metadata& data,Game game=Game::Botw);
     std::string dataPath() const;
     void log(const std::string& text) const;
 private:

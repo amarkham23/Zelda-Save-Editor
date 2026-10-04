@@ -1,5 +1,7 @@
 // Copyright (c) 2026 StockiestThree9
 #include "platform.hpp"
+#include "totk_format.hpp"
+#include "totk.hpp"
 #include <SDL_image.h>
 #include <algorithm>
 #include <fstream>
@@ -34,7 +36,7 @@ struct Platform::Impl {
 static AccountUid uid(const Profile& p){return {{p.low,p.high}};}
 static void check(Result rc,const char* action){if(R_FAILED(rc)){char text[128];snprintf(text,sizeof(text),"%s (code %08X)",action,unsigned(rc));throw Error(text);}}
 struct Mount {
-    Mount(const Profile& p,bool write=false){check(write?fsdevMountSaveData("zsave",BotwId,uid(p)):fsdevMountSaveDataReadOnly("zsave",BotwId,uid(p)),"Could not open this user's BOTW save");}
+    Mount(const Profile& p,bool write=false,Game game=Game::Botw){auto title=game==Game::Totk?TotkId:BotwId;check(write?fsdevMountSaveData("zsave",title,uid(p)):fsdevMountSaveDataReadOnly("zsave",title,uid(p)),"Could not open this user's game save");}
     ~Mount(){fsdevUnmountDevice("zsave");}
 };
 #endif
@@ -172,14 +174,25 @@ std::vector<Profile> Platform::profiles(){
 #endif
     return result;
 }
-std::vector<Slot> Platform::slots(const Profile& p){
+std::vector<Slot> Platform::slots(const Profile& p,Game game){
 #ifdef __SWITCH__
-    Mount mount(p);std::string root="zsave:/";
+    Mount mount(p,false,game);std::string root="zsave:/";
 #else
-    (void)p;std::string root=dataPath()+"/saves/";
+    (void)p;std::string root=dataPath()+(game==Game::Totk?"/totk/saves/":"/saves/");
 #endif
     std::vector<Slot> result;std::error_code ec;
     if(!fs::exists(root,ec))return result;
+    if(game==Game::Totk){
+        for(unsigned i=0;i<6;++i){char folder[16];snprintf(folder,sizeof(folder),"slot_%02u",i);auto path=fs::path(root)/folder;
+            if(!fs::is_regular_file(path/"progress.sav"))continue;
+            Slot slot;slot.game=Game::Totk;slot.gameProfile=1;slot.folder=folder;slot.automatic=i!=0;slot.label=slot.automatic?"Autosave":"Manual save";
+            try{readTotkCaption(readFile((path/"caption.sav").string(),8*1024*1024),slot);}catch(const Error& e){log(e.what());}
+            if(!slot.timestamp){auto time=fs::last_write_time(path/"progress.sav");auto system=std::chrono::time_point_cast<std::chrono::system_clock::duration>(time-fs::file_time_type::clock::now()+std::chrono::system_clock::now());slot.timestamp=std::chrono::system_clock::to_time_t(system);}
+            if(slot.date.empty()){std::time_t timestamp=std::time_t(slot.timestamp);char text[64];auto date=std::localtime(&timestamp);if(date&&std::strftime(text,sizeof(text),"%b %d, %Y · %I:%M %p",date))slot.date=text;}
+            if(slot.date.empty())slot.date="Date unavailable";result.push_back(std::move(slot));
+        }
+        std::sort(result.begin(),result.end(),[](auto& a,auto& b){if(a.timestamp!=b.timestamp)return a.timestamp>b.timestamp;return a.automatic<b.automatic;});return result;
+    }
     if(profileSwapPending(root))throw Error("Resume the interrupted profile swap before opening saves.");
     size_t visited=0;
     std::function<void(const fs::path&,const std::string&,int)> scan;
@@ -232,37 +245,40 @@ static void validateSlotPath(const Slot& slot){
 Save Platform::open(const Profile& p,const Slot& slot){
     validateSlotPath(slot);
 #ifdef __SWITCH__
-    Mount mount(p);if(profileSwapPending("zsave:/"))throw Error("Resume the interrupted profile swap first.");return Save(readFile("zsave:/"+slot.folder+"/game_data.sav"));
+    Mount mount(p,false,slot.game);if(slot.game==Game::Botw&&profileSwapPending("zsave:/"))throw Error("Resume the interrupted profile swap first.");std::string root="zsave:/";
 #else
-    (void)p;if(profileSwapPending(dataPath()+"/saves/"))throw Error("Resume the interrupted profile swap first.");return Save(readFile(dataPath()+"/saves/"+slot.folder+"/game_data.sav"));
+    (void)p;std::string root=dataPath()+(slot.game==Game::Totk?"/totk/saves/":"/saves/");if(slot.game==Game::Botw&&profileSwapPending(root))throw Error("Resume the interrupted profile swap first.");
 #endif
+    Save save(readFile(root+slot.folder+"/"+saveFilename(slot.game)));if(save.game()!=slot.game)throw Error("The selected save belongs to a different game.");return save;
 }
 std::string Platform::commit(const Profile& p,const Slot& slot,Save& save){
     validateSlotPath(slot);
     if(!save.dirty())throw Error("There are no changes to save.");
+    if(save.game()!=slot.game)throw Error("The selected save belongs to a different game.");
+    Save validated(save.bytes());if(validated.game()!=slot.game)throw Error("Edited save validation failed.");
 #ifdef __SWITCH__
-    Mount mount(p,true);std::string root="zsave:/"+slot.folder;
-    if(profileSwapPending("zsave:/"))throw Error("Resume the interrupted profile swap first.");
+    Mount mount(p,true,slot.game);std::string root="zsave:/"+slot.folder;
+    if(slot.game==Game::Botw&&profileSwapPending("zsave:/"))throw Error("Resume the interrupted profile swap first.");
 #else
-    std::string root=dataPath()+"/saves/"+slot.folder;
-    if(profileSwapPending(dataPath()+"/saves/"))throw Error("Resume the interrupted profile swap first.");
+    std::string root=dataPath()+(slot.game==Game::Totk?"/totk/saves/":"/saves/")+slot.folder;
+    if(slot.game==Game::Botw&&profileSwapPending(dataPath()+"/saves/"))throw Error("Resume the interrupted profile swap first.");
 #endif
-    std::string target=root+"/game_data.sav";
+    std::string target=root+"/"+saveFilename(slot.game);
     if(readFile(target)!=save.original())throw Error("This save changed after you opened it. Reopen it before saving.");
     auto now=std::time(nullptr);std::tm utc=*std::gmtime(&now);char stamp[32];std::strftime(stamp,sizeof(stamp),"%Y%m%d-%H%M%S",&utc);
     std::ostringstream profile;profile<<std::hex<<std::setw(16)<<std::setfill('0')<<p.high<<std::setw(16)<<p.low;
     // Encode separators so a nested profile has one unique backup directory name.
     std::string token;const char* hex="0123456789ABCDEF";
     for(unsigned char c:slot.folder){if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='_')token+=char(c);else{token+='%';token+=hex[c>>4];token+=hex[c&15];}}
-    const std::string backupBase=dataPath()+"/backups/"+profile.str()+"/"+stamp+"-profile"+std::to_string(slot.gameProfile)+"-slot"+token;
+    const std::string backupBase=dataPath()+"/backups/"+profile.str()+"/"+stamp+(slot.game==Game::Totk?"-totk":"")+"-profile"+std::to_string(slot.gameProfile)+"-slot"+token;
     std::string backup=backupBase;
     for(int i=1;fs::exists(backup);++i)backup=backupBase+"-"+std::to_string(i);
     fs::create_directories(backup);
     for(auto& entry:fs::directory_iterator(root))if(entry.is_regular_file()){
         auto bytes=readFile(entry.path().string());auto dest=backup+"/"+entry.path().filename().string();writeFile(dest,bytes);if(readFile(dest)!=bytes)throw Error("Backup verification failed. The original save has not been changed.");
     }
-    if(readFile(backup+"/game_data.sav")!=save.original())throw Error("Backup verification failed.");
-    std::string origin=slot.identity()+"\nOriginal folder: "+slot.folder+"\nConsole user: "+p.name+"\n";
+    if(readFile(backup+"/"+saveFilename(slot.game))!=save.original())throw Error("Backup verification failed.");
+    std::string origin=std::string(gameName(slot.game))+"\n"+slot.identity()+"\nOriginal folder: "+slot.folder+"\nConsole user: "+p.name+"\n";
     writeFile(backup+"/zse-backup-origin.txt",Bytes(origin.begin(),origin.end()));
     try {
         writeFile(target,save.bytes());
@@ -302,7 +318,8 @@ std::string Platform::swapProfiles(const Profile& p,bool resume){
     for(int i=1;fs::exists(backup);++i)backup=base+"-"+std::to_string(i);
     auto result=exchangeProfiles(root,backup,commit);log("Exchanged normal BOTW saves and normal Hero's Path. Full backup: "+result);return result;
 }
-void Platform::loadMetadata(Metadata& data){
+void Platform::loadMetadata(Metadata& data,Game selected){
+    if(selected==Game::Totk){loadTotkNames(data,dataPath(),[this](auto& message){log(message);});resourceStatus=data.names.empty()?"TOTK names unavailable · item IDs shown":"TOTK item names loaded";return;}
     const auto cache=dataPath()+"/cache";fs::create_directories(cache);
 #ifdef __SWITCH__
     bool mounted=false,raw=false;FsFileSystem game{};

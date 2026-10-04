@@ -1,5 +1,6 @@
 // Copyright (c) 2026 StockiestThree9
 #include "ui.hpp"
+#include "totk.hpp"
 #include <SDL_image.h>
 #include <algorithm>
 #include <cmath>
@@ -82,7 +83,7 @@ public:
     void present(){if(!capturePath.empty()){shot(capturePath);capturePath.clear();}SDL_RenderPresent(renderer);}
     void shot(const std::string& path){auto s=SDL_CreateRGBSurfaceWithFormat(0,1280,720,32,SDL_PIXELFORMAT_RGBA32);SDL_RenderReadPixels(renderer,nullptr,s->format->format,s->pixels,s->pitch);IMG_SavePNG(s,path.c_str());SDL_FreeSurface(s);}
 };
-enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap };
+enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap,Choices };
 enum class SaveTab {Normal,Profile2,Master,Other};
 struct Frame {
     View view=View::Games;
@@ -91,6 +92,7 @@ struct Frame {
     int selected=0,scroll=0;
     ItemGroup group=ItemGroup::Weapons;
     Item item;
+    EditField choice;
     bool expanded=false,replacement=false;
     SaveTab saveTab=SaveTab::Normal;
 };
@@ -102,6 +104,8 @@ public:
     Canvas canvas;
     Metadata metadata;
     Botw game;
+    Totk tears;
+    Game selectedGame=Game::Botw;
     std::unique_ptr<Save> save;
     std::vector<Profile> profiles;
     std::vector<Slot> slots;
@@ -113,7 +117,16 @@ public:
     bool running=true,dirty=true,rebuild=true;
     std::string toast;
     uint64_t toastUntil=0;
-    App():canvas(platform),game(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.4 beta 1";stack.push_back(f);}
+    App():canvas(platform),game(metadata),tears(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.5 TOTK alpha 1";stack.push_back(f);}
+    bool isTotk() const {return selectedGame==Game::Totk;}
+    std::vector<Item> items() const {return isTotk()?tears.items(*save):game.items(*save);}
+    std::string sectionName(ItemGroup group) const {return isTotk()&&group==ItemGroup::Unknown?"Zonai devices":groupName(group);}
+    void selectGame(Game selected){
+        save.reset();selectedGame=selected;metadata={};
+        busy("Reading game resources",gameName(selected),[&]{platform.loadMetadata(metadata,selected);});
+        for(auto it=canvas.images.begin();it!=canvas.images.end();){if(it->first.rfind("slot",0)==0){SDL_DestroyTexture(it->second);it=canvas.images.erase(it);}else ++it;}
+        chooseUser(platform.profiles());
+    }
     Frame& current(){return stack.back();}
     void push(View view,const std::string& title,const std::string& subtitle=""){Frame f;f.view=view;f.title=title;f.subtitle=subtitle;stack.push_back(std::move(f));dirty=true;rebuild=true;}
     void notice(const std::string& s){toast=s;toastUntil=SDL_GetTicks64()+3500;dirty=true;}
@@ -121,12 +134,12 @@ public:
     void confirm(const std::string& title,const std::string& body,const std::string& accept,std::function<void()> action){dialog=Dialog{title,body,accept,std::move(action),true,0};dirty=true;}
     void tryAction(const std::function<void()>& action){try{if(action)action();}catch(const std::exception& e){platform.log(e.what());platform.cue(Cue::Error);message("Could not complete that",e.what());}dirty=true;rebuild=true;}
     void selectProfile(const Profile& p){
-        profile=p;std::vector<Slot> found;busy("Finding your saves",p.name,[&]{swapState=platform.swapInfo(p);if(!swapState.pending)found=platform.slots(p);});
+        profile=p;std::vector<Slot> found;busy("Finding your saves",p.name,[&]{swapState=isTotk()?SwapInfo{}:platform.swapInfo(p);if(!swapState.pending)found=platform.slots(p,selectedGame);});
         slots=std::move(found);push(View::Slots,"Choose a save",p.name+" · Newest first");if(swapState.pending)push(View::Swap,"Recover profile swap",p.name);
     }
     static bool inTab(const Slot& s,SaveTab tab){if(tab==SaveTab::Master)return s.master;if(tab==SaveTab::Normal)return s.gameProfile==1&&!s.master;if(tab==SaveTab::Profile2)return s.gameProfile==2&&!s.master;return !s.gameProfile;}
     std::vector<const Slot*> filteredSlots() const {std::vector<const Slot*> out;for(auto& s:slots)if(inTab(s,stack.back().saveTab))out.push_back(&s);return out;}
-    int tabCount() const {return std::any_of(slots.begin(),slots.end(),[](auto& s){return !s.gameProfile;})?4:3;}
+    int tabCount() const {if(isTotk())return 1;return std::any_of(slots.begin(),slots.end(),[](auto& s){return !s.gameProfile;})?4:3;}
     void changeSaveTab(int tab){current().saveTab=SaveTab(tab);current().selected=0;current().scroll=0;platform.cue(Cue::Focus);dirty=true;rebuild=true;}
     void manageProfiles(){busy("Reading normal saves",profile.name,[&]{swapState=platform.swapInfo(profile);});push(View::Swap,swapState.pending?"Recover profile swap":"Swap normal saves",profile.name);}
     void exchange(bool resume){
@@ -140,17 +153,18 @@ public:
     void chooseUser(std::vector<Profile> users){
         profiles=std::move(users);
         if(profiles.empty())throw Error("No console users were found. Create a user in System Settings, then reopen the editor.");
-        if(profiles.size()==1)selectProfile(profiles.front());else push(View::Profiles,"Choose a user","Breath of the Wild");
+        if(profiles.size()==1)selectProfile(profiles.front());else push(View::Profiles,"Choose a user",gameName(selectedGame));
     }
     void back(){if(stack.size()==1){running=false;return;}if(current().view==View::Sections&&save&&save->dirty()){confirm("Discard changes?","Your edits have not been written to the game. Going back will discard them.","Discard",[this]{save.reset();stack.pop_back();});return;}if(current().view==View::Sections)save.reset();stack.pop_back();platform.cue(Cue::Back);dirty=true;rebuild=true;}
     void fieldList(const std::string& title,std::vector<EditField> fields,const std::string& subtitle=""){push(View::Fields,title,subtitle);current().fields=std::move(fields);}
     void editField(EditField field){
+        if(!field.choices.empty()){push(View::Choices,field.label,"Choose an option");current().choice=field;for(size_t i=0;i<field.choices.size();++i)if(field.choices[i].first==save->word(field.field.hash,field.index))current().selected=int(i);current().scroll=std::max(0,current().selected-5);return;}
         if(field.field.kind==Kind::Bool){setValue(*save,field,save->word(field.field.hash,field.index)?"0":"1");platform.cue(Cue::Confirm);return;}
         bool text=field.field.kind==Kind::String;auto result=platform.keyboard(field.label,displayValue(*save,field),text?field.field.width*4-1:24,!text,!field.whole);
         if(result){setValue(*save,field,*result);platform.cue(Cue::Confirm);}
     }
     void chooseField(EditField f){size_t n=save->count(f.field.hash)/(f.field.kind==Kind::String?f.field.width:1);
-        if(!current().expanded&&n>1){fieldList(f.label,game.elements(*save,f.field),f.field.name);current().expanded=true;}else editField(f);
+        if(!current().expanded&&n>1){fieldList(f.label,isTotk()?tears.elements(*save,f.field):game.elements(*save,f.field),f.field.name);current().expanded=true;}else editField(f);
     }
     void review(){
         if(!save||!save->dirty()){notice("No unsaved changes");return;}
@@ -162,17 +176,20 @@ public:
     }
     bool matches(const std::string& value) const {if(stack.back().filter.empty())return true;auto lower=[](std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;};return lower(value).find(lower(stack.back().filter))!=std::string::npos;}
     std::string shown(const EditField& f) const {auto value=displayValue(*save,f);if(f.unit.empty())return value;std::string unit=f.unit;if(value=="1"&&(unit=="wheels"||unit=="hearts"||unit=="seconds"||unit=="rupees"))unit.pop_back();return value+(unit=="%"?"":" ")+unit;}
-    std::string location(const Slot& s) const {auto it=metadata.locations.find(s.location);return it!=metadata.locations.end()?it->second:s.location.empty()?"Unknown location":readable(s.location);}
+    std::string location(const Slot& s) const {auto it=metadata.locations.find(s.location);return it!=metadata.locations.end()?it->second:s.location.empty()?(s.game==Game::Totk?"Save slot "+s.folder.substr(5):"Unknown location"):readable(s.location);}
     std::vector<Row> rows(){
         std::vector<Row> r;auto view=current().view;
         if(save&&(view==View::Item||view==View::Modifiers)){
-            auto all=game.items(*save);auto item=std::find_if(all.begin(),all.end(),[&](auto& value){return value.index==current().item.index;});
+            auto all=items();auto item=std::find_if(all.begin(),all.end(),[&](auto& value){return value.index==current().item.index;});
             if(item==all.end()){while(stack.size()>1&&current().view!=View::Inventory)stack.pop_back();return rows();}
             current().item=*item;if(view==View::Item)current().title=metadata.itemName(item->id);
         }
-        if(view==View::Games){r.push_back({"Breath of the Wild","Nintendo Switch","Open",[this]{chooseUser(platform.profiles());}});}
-        else if(view==View::Profiles){for(auto p:profiles)r.push_back({p.name,"BOTW save data","",[this,p]{selectProfile(p);}});}
-        else if(view==View::Slots){for(auto entry:filteredSlots()){auto s=*entry;r.push_back({s.identity(),location(s),s.date,[this,s]{std::unique_ptr<Save> opened;busy("Opening save",s.identity(),[&]{opened=std::make_unique<Save>(platform.open(profile,s));});slot=s;save=std::move(opened);push(View::Sections,"Breath of the Wild",profile.name+" · "+slot.identity());}});}}
+        if(view==View::Games){
+            r.push_back({"Breath of the Wild","Nintendo Switch","Open",[this]{selectGame(Game::Botw);}});
+            r.push_back({"Tears of the Kingdom","Nintendo Switch · Experimental support","Open",[this]{selectGame(Game::Totk);}});
+        }
+        else if(view==View::Profiles){for(auto p:profiles)r.push_back({p.name,std::string(gameName(selectedGame))+" save data","",[this,p]{selectProfile(p);}});}
+        else if(view==View::Slots){for(auto entry:filteredSlots()){auto s=*entry;r.push_back({s.identity(),location(s),s.date,[this,s]{std::unique_ptr<Save> opened;busy("Opening save",s.identity(),[&]{opened=std::make_unique<Save>(platform.open(profile,s));});slot=s;save=std::move(opened);if(isTotk())tears.definitions(*save);push(View::Sections,gameName(selectedGame),profile.name+" · "+slot.identity());}});}}
         else if(view==View::Swap){
             if(swapState.pending)r.push_back({"Resume interrupted swap","Finish moving the retained data into its intended locations","Resume",[this]{confirm("Resume the swap?","Keep BOTW closed. The editor will verify the retained data and continue the interrupted operation.","Resume",[this]{exchange(true);});}});
             else r.push_back({"Swap Profile 1 and Profile 2","Exchange the two normal adventures","Review",[this]{confirm("Swap normal saves?","Keep BOTW closed. Normal saves, their thumbnails and normal Hero's Path will exchange places. Shared photo libraries stay at their current locations. A full backup is verified first.","Swap saves",[this]{exchange(false);});}});
@@ -180,7 +197,14 @@ public:
             r.push_back({"Profile 2 · Inactive location",std::to_string(swapState.normal[1])+" normal saves","",[this]{message("Profile 2","The second profile was introduced with the Switch 2 edition. Saves stored here are editable but cannot be played in this location on this Switch.");}});
             r.push_back({"What moves?","Normal saves, save thumbnails and normal Hero's Path","Details",[this]{message("Normal-save swap","Each set's six normal save slots, their save pictures and normal Hero's Path move together. Albums and compendium pictures stay in place, so these images may differ after a swap. All originals are retained in the verified full backup.");}});
         }
-        else if(view==View::Sections){
+        else if(view==View::Sections&&isTotk()){
+            r.push_back({"Player","Hearts, stamina wheels, battery cells and rupees","",[this]{fieldList("Player",tears.stats(*save));current().expanded=true;}});
+            r.push_back({"Inventory","Durability, quantities, bonuses and dye colors","",[this]{push(View::Inventory,"Inventory",metadata.names.empty()?"Item IDs shown · Reload game resources in Settings":"L / R changes section");}});
+            r.push_back({"Saved position","Link's saved coordinates","",[this]{fieldList("Saved position",tears.matching(*save,[](auto& f){return f.name=="PlayerStatus.SavePos";}),"Coordinates apply in the currently saved map");}});
+            r.push_back({"About TOTK support","Experimental · Existing items and player values","Details",[this]{message("TOTK alpha","This build edits existing items and player values. Item creation, fusion replacement, horses, quests and world-completion edits are still in development. Every write requires confirmation and a verified original backup.");}});
+        }else if(view==View::Choices){
+            auto field=current().choice;for(auto option:field.choices)r.push_back({option.second,"",save->word(field.field.hash,field.index)==option.first?"Selected":"",[this,field,option]{setValue(*save,field,std::to_string(option.first));back();platform.cue(Cue::Confirm);}});
+        }else if(view==View::Sections){
             r.push_back({"Player","Hearts, stamina, rupees and abilities","",[this]{fieldList("Player",game.stats(*save));}});
             r.push_back({"Inventory","Equipment, materials, meals and key items","",[this]{push(View::Inventory,"Inventory","L / R changes section");}});
             r.push_back({"Horses","Registered horses and the wild horse slot","",[this]{push(View::Horses,"Horses");}});
@@ -191,8 +215,8 @@ public:
             const char* themes[]={"Automatic","Light","Dark","OLED black"};std::string theme=themes[int(platform.settings.theme)];
             r.push_back({"Appearance",platform.settings.theme==Theme::Oled?"Pure black backgrounds for OLED screens":"Automatic follows your Switch theme",theme,[this]{platform.settings.theme=Theme((int(platform.settings.theme)+1)%4);platform.saveSettings();}});
             r.push_back({"Navigation sounds",platform.nativeSounds?"Loaded from this Switch's HOME menu":"System sounds are unavailable in this session",platform.settings.sound?"On":"Off",[this]{platform.settings.sound=!platform.settings.sound;platform.saveSettings();platform.cue(Cue::Confirm);}});
-            r.push_back({"About","Zelda Save Editor · 0.1.4 beta 1","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
-            r.push_back({"Game resources",platform.resourceStatus,"Reload",[this]{busy("Reading game resources","Loading names and definitions from your installed game",[&]{metadata={};platform.loadMetadata(metadata);});notice(platform.resourceStatus);}});
+            r.push_back({"About","Zelda Save Editor · 0.1.5 TOTK alpha 1","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
+            r.push_back({"Game resources",platform.resourceStatus,"Reload",[this]{busy("Reading game resources","Loading names and definitions from your installed game",[&]{metadata={};platform.loadMetadata(metadata,selectedGame);if(save&&isTotk())tears.definitions(*save);});notice(platform.resourceStatus);}});
         }else if(view==View::Fields){
             for(auto field:current().fields){if(!matches(field.label+" "+field.field.name))continue;size_t n=save->count(field.field.hash)/(field.field.kind==Kind::String?field.field.width:1);
                 std::string value=!current().expanded&&n>1?std::to_string(n)+" entries":shown(field);
@@ -200,20 +224,22 @@ public:
             }
             if(current().title=="Amiibo"&&current().filter.empty())r.insert(r.begin(),{"Reset today's scans","Keeps your total scan history","",[this]{confirm("Reset amiibo scans?","Clear today's scan history so amiibo can be scanned again.","Reset scans",[this]{game.resetAmiibo(*save);notice("Daily scan history cleared");});}});
         }else if(view==View::Inventory){
-            for(auto item:game.items(*save)){if(item.group!=current().group||!matches(metadata.itemName(item.id)+" "+item.id))continue;
+            for(auto item:items()){if(item.group!=current().group||!matches(metadata.itemName(item.id)+" "+item.id))continue;
+                if(isTotk()){r.push_back({metadata.itemName(item.id),tears.itemDetail(*save,item),tears.itemValue(*save,item),[this,item]{push(View::Item,metadata.itemName(item.id),tears.itemDetail(*save,item));current().item=item;}});continue;}
                 int value=save->integer(hashName("PorchItem_Value1"),item.index);bool equipment=item.group==ItemGroup::Weapons||item.group==ItemGroup::Bows||item.group==ItemGroup::Shields;
                 std::string valueLabel=equipment?std::to_string(value/100)+" durability":item.group==ItemGroup::Armor?(value?"Dyed":"Original color"):"× "+std::to_string(value);
                 r.push_back({metadata.itemName(item.id),save->word(hashName("PorchItem_EquipFlag"),item.index)?"Equipped":groupName(item.group),valueLabel,[this,item]{push(View::Item,metadata.itemName(item.id),groupName(item.group));current().item=item;}});
             }
-            r.push_back({"Add item","Choose from your game's item catalogue","+",[this]{auto group=current().group;push(View::Picker,"Add item",groupName(group));current().group=group;}});
+            if(!isTotk())r.push_back({"Add item","Choose from your game's item catalogue","+",[this]{auto group=current().group;push(View::Picker,"Add item",groupName(group));current().group=group;}});
         }else if(view==View::Item){auto item=current().item;
-            r.push_back({"Replace item","Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",groupName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
-            for(auto f:game.itemFields(*save,item)){
+            if(isTotk()&&tears.itemFields(*save,item).empty())r.push_back({"Owned item","No editable quantity is stored for this item","",[this]{message("Owned item","This item uses an ownership marker. Quantity editing is unavailable for it.");}});
+            if(!isTotk())r.push_back({"Replace item","Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",groupName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
+            for(auto f:(isTotk()?tears.itemFields(*save,item):game.itemFields(*save,item))){
                 if(f.label=="Modifier flags")r.push_back({"Modifier","Choose an equipment bonus","Choose",[this,item]{push(View::Modifiers,"Equipment modifier");current().item=item;}});
                 else if(f.label=="Equipped")r.push_back({f.label,"",displayValue(*save,f),[this,item]{game.equipItem(*save,item);}});
                 else r.push_back({f.label,f.description,shown(f),[this,f]{editField(f);}});
             }
-            r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
+            if(!isTotk())r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
         }else if(view==View::Modifiers){
             auto item=current().item;EditField flags;for(auto f:game.itemFields(*save,item))if(f.label=="Modifier flags")flags=f;
             uint32_t currentValue=save->word(flags.field.hash,flags.index);
@@ -251,7 +277,7 @@ public:
         if(modal){c.text("B  Cancel     A  Select",850,670,24,c.p.text,370,true);return;}
         std::string controls=current().view==View::Games?"X  Settings    B  Exit    A  Select":"X  Settings    B  Back    A  Select";
         if(current().view==View::Settings)controls="B  Back    A  Select";
-        if(current().view==View::Slots)controls=current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2?"L / R  Tabs    Y  Swap saves    X  Settings    B  Back    A  Select":"L / R  Tabs    X  Settings    B  Back    A  Select";
+        if(current().view==View::Slots&&!isTotk())controls=current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2?"L / R  Tabs    Y  Swap saves    X  Settings    B  Back    A  Select":"L / R  Tabs    X  Settings    B  Back    A  Select";
         if(save&&current().view!=View::Settings){controls="ZL  Undo    ZR  Redo    ";if(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)controls+="Y  Search    ";controls+="+  Save    X  Settings    B  Back    A  Select";}
         c.text(controls,330,670,21,c.p.text,890,true);
     }
@@ -282,18 +308,18 @@ public:
         bool cards=f.view==View::Games||f.view==View::Profiles;
         if(f.view==View::Games){
             c.text("Select a game",48,149,24,c.p.muted,600);
-            c.rect(52,204,1176,112,c.p.panel);c.border(48,200,1184,120,c.p.accent,4);c.logo(72,220,80);
-            c.text("Breath of the Wild",180,216,29,c.p.text,840);c.text("Nintendo Switch",181,263,21,c.p.muted,800);
-            c.text("Open",1075,241,24,c.p.accent,125,true);
+            for(size_t i=0;i<entries.size();++i){int y=204+int(i)*140;c.rect(52,y,1176,112,c.p.panel);if(int(i)==f.selected)c.border(48,y-4,1184,120,c.p.accent,4);c.logo(72,y+16,80);
+                c.text(entries[i].title,180,y+12,29,c.p.text,840);c.text(entries[i].subtitle,181,y+59,21,c.p.muted,800);c.text("Open",1075,y+37,24,c.p.accent,125,true);
+            }
             c.text("X  Appearance and sound settings",52,594,20,c.p.muted,1150);
         }else if(f.view==View::Slots){
             auto visible=filteredSlots();const char* names[]={"Normal","Profile 2","Master Mode","Other"};int width=1168/tabCount();
             for(int t=0;t<tabCount();++t){int x=56+t*width;int count=int(std::count_if(slots.begin(),slots.end(),[t](auto& s){return inTab(s,SaveTab(t));}));bool active=t==int(f.saveTab);
-                c.text(std::string(names[t])+"  ("+std::to_string(count)+")",x+18,133,24,active?c.p.accent:c.p.muted,width-36);c.rect(x,177,width-12,active?4:1,active?c.p.accent:c.p.line);
+                c.text(std::string(isTotk()?"Your saves":names[t])+"  ("+std::to_string(count)+")",x+18,133,24,active?c.p.accent:c.p.muted,width-36);c.rect(x,177,width-12,active?4:1,active?c.p.accent:c.p.line);
             }
-            const char* note=f.saveTab==SaveTab::Normal?"Profile 1 · The normal-mode saves used by this Switch.":f.saveTab==SaveTab::Profile2?"Switch 2 save location · Not playable here as Profile 2. Use Y to swap this set into Profile 1.":f.saveTab==SaveTab::Master?"Master Mode · Managed separately. These saves stay in their current locations.":"Additional save locations. Their original folders are preserved when editing.";
+            const char* note=isTotk()?"Tears of the Kingdom · Your manual save and autosaves, newest first.":f.saveTab==SaveTab::Normal?"Profile 1 · The normal-mode saves used by this Switch.":f.saveTab==SaveTab::Profile2?"Switch 2 save location · Not playable here as Profile 2. Use Y to swap this set into Profile 1.":f.saveTab==SaveTab::Master?"Master Mode · Managed separately. These saves stay in their current locations.":"Additional save locations. Their original folders are preserved when editing.";
             c.text(note,56,201,20,f.saveTab==SaveTab::Profile2?c.p.accent:c.p.muted,1168);
-            if(entries.empty()){c.text("No saves in this tab",60,298,32,c.p.text,1000);c.wrapped("Use L / R to choose another save category.",60,357,900,24,c.p.muted);}
+            if(entries.empty()){c.text("No saves in this tab",60,298,32,c.p.text,1000);c.wrapped(isTotk()?"Make a save in Tears of the Kingdom, close the game, then reopen the editor.":"Use L / R to choose another save category.",60,357,900,24,c.p.muted);}
             else{
                 const auto& selected=*visible[f.selected];
                 c.rect(56,251,320,180,c.p.panel);
@@ -325,7 +351,7 @@ public:
             else c.text("Page "+std::to_string(page+1)+" / "+std::to_string((entries.size()+pageSize-1)/pageSize),900,616,18,c.p.muted,314,true);
         }else{
             // A fixed row grid keeps type size and value alignment constant while navigating.
-            c.text(f.view==View::Inventory?groupName(f.group):f.view==View::Settings?"Preferences":f.view==View::Swap?"Game profiles":"Breath of the Wild",48,155,25,c.p.text,246);
+            c.text(f.view==View::Inventory?sectionName(f.group):f.view==View::Settings?"Preferences":f.view==View::Swap?"Game profiles":gameName(selectedGame),48,155,25,c.p.text,246);
             c.wrapped(f.view==View::Settings?"Make the editor feel at home.":f.view==View::Swap?"Switch between two normal adventures. Both sets of saves are retained.":f.view==View::Inventory?"L / R\nChange section":f.filter.empty()?"Choose a value to edit. Changes stay here until you save.":"Search: "+f.filter,48,209,240,21,c.p.muted,6);
             if(save&&f.view!=View::Settings){c.text(std::to_string(save->changedWords())+" changes",48,548,22,c.p.accent,238);c.text("+  Save changes",48,584,21,c.p.muted,238);}
             c.rect(310,151,1,475,c.p.line);
@@ -362,7 +388,7 @@ public:
         if(input.down&B){back();return;}
         if(current().view==View::Slots){
             if(input.down&(L|R)){changeSaveTab((int(current().saveTab)+((input.down&R)?1:tabCount()-1))%tabCount());return;}
-            if(input.down&Y){if(current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2)tryAction([this]{manageProfiles();});return;}
+            if(input.down&Y){if(!isTotk()&&(current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2))tryAction([this]{manageProfiles();});return;}
             if(input.touchY>=124&&input.touchY<=183&&input.touchX>=56&&input.touchX<1224){changeSaveTab(std::min(tabCount()-1,(input.touchX-56)/(1168/tabCount())));return;}
         }
         if(input.down&Plus){if(save)tryAction([this]{review();});else running=false;return;}
@@ -375,7 +401,7 @@ public:
         if(input.down&Left)movement-=cols>1?1:visible;if(input.down&Right)movement+=cols>1?1:visible;
         if(movement&&!entries.empty()){int next=std::clamp(f.selected+movement,0,int(entries.size())-1);if(next!=f.selected){f.selected=next;platform.cue(Cue::Focus);dirty=true;}}
         if(input.touchX>=0){int chosen=-1;
-            if(f.view==View::Games){if(input.touchX>=48&&input.touchX<=1232&&input.touchY>=200&&input.touchY<320)chosen=0;}
+            if(f.view==View::Games){if(input.touchX>=48&&input.touchX<=1232)for(int i=0;i<int(entries.size());++i)if(input.touchY>=200+i*140&&input.touchY<320+i*140)chosen=i;}
             else if(f.view==View::Profiles){int localX=input.touchX-64,localY=input.touchY-151;if(localX>=0&&localY>=0&&localX<4*293&&localY<334)chosen=(f.selected/4)*4+localX/293;}
             else if(f.view==View::Slots){if(input.touchX>=430&&input.touchX<=1214&&input.touchY>=251&&input.touchY<611)chosen=f.scroll+(input.touchY-251)/72;}
             else if(input.touchX>=334&&input.touchX<=1213&&input.touchY>=149&&input.touchY<605)chosen=f.scroll+(input.touchY-149)/76;
@@ -387,6 +413,20 @@ public:
     int run(int argc,char** argv){
         busy("Getting things ready","Loading names and definitions from your installed game",[&]{platform.loadMetadata(metadata);});
 #ifndef __SWITCH__
+        if(argc>1&&std::string(argv[1])=="--totk-self-test"){
+            auto ensure=[](bool ok,const char* why){if(!ok)throw Error(why);};
+            std::filesystem::create_directories("preview");platform.settings.theme=Theme::Dark;
+            current().selected=1;screenshot("preview/totk-games.png");handle(Input{A},rows());
+            ensure(isTotk()&&current().view==View::Slots,"TOTK game selection failed");ensure(tabCount()==1,"TOTK exposed BOTW tabs");handle(Input{Y},rows());ensure(current().view==View::Slots,"TOTK exposed profile swapping");
+            ensure(!slots.empty(),"TOTK fixture is missing");screenshot("preview/totk-saves.png");handle(Input{A},rows());ensure(save&&save->game()==Game::Totk,"Wrong game save opened");auto before=save->bytes();
+            screenshot("preview/totk-sections.png");handle(Input{A},rows());ensure(current().view==View::Fields,"Player page missing");screenshot("preview/totk-player.png");
+            for(int i=0;i<30;++i){handle(Input{Down},rows());handle(Input{Up},rows());}back();current().selected=1;handle(Input{A},rows());screenshot("preview/totk-inventory.png");
+            for(int i=0;i<9;++i){for(auto& row:rows())ensure(row.title!="Add item","TOTK exposes BOTW insertion");handle(Input{R},rows());}
+            handle(Input{A},rows());ensure(current().view==View::Item,"Item page missing");screenshot("preview/totk-detail.png");auto detail=rows();for(auto& row:detail)if(row.title=="Equipment bonus"){row.action();break;}
+            ensure(current().view==View::Choices,"Bonus picker missing");screenshot("preview/totk-bonus.png");for(int i=0;i<10;++i)handle(Input{Down},rows());back();ensure(save->bytes()==before,"TOTK navigation edited data");
+            back();back();back();back();ensure(current().view==View::Games,"TOTK back path incorrect");selectGame(Game::Botw);ensure(!isTotk()&&tabCount()>=3,"BOTW selection was contaminated by TOTK");
+            std::cout<<"PASS: TOTK selection, isolated tabs, player and inventory browsing, enum picker, read-only navigation, return to BOTW; preview images saved\n";return 0;
+        }
         if(argc>1&&std::string(argv[1])=="--self-test"){
             auto ensure=[](bool ok,const char* problem){if(!ok)throw Error(problem);};
             handle(Input{X},rows());ensure(current().view==View::Settings,"Settings unavailable before save");back();
