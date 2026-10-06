@@ -18,6 +18,7 @@ static Bytes caption(){
  put(b,100,18);put(b,104,0x63696a32);put(b,108,112);put(b,112,4);b[116]=0xff;b[117]=0xd8;b[118]=0xff;b[119]=0xd9;return b;
 }
 #include "totk_inventory.hpp"
+#include "totk_variants.hpp"
 static void testNames(){
  // A tiny original MSBT inside a TOTK-style ActorMsg archive. No game text.
  const std::string label="Weapon_Sword_003_Name",shown="Example weapon";
@@ -32,10 +33,12 @@ static void testNames(){
  Metadata data;loadTotkNames(data,"build/totk-resource-test",[](auto&){});require(data.names.size()==1&&data.itemName("Weapon_Sword_003")==shown,"TOTK ActorMsg item names were not loaded");
 }
 int main(int argc,char** argv){try{
- if(argc!=2)throw Error("Pass the path to a local TOTK progress.sav fixture. It is never distributed.");
+ if(argc<2||argc>3)throw Error("Pass a local TOTK progress.sav fixture and optionally a private catalogue cache root. Neither is distributed.");
  auto original=readFile(argv[1]);Save save(original);require(save.game()==Game::Totk,"Wrong game detected");require(save.bytes()==original&&!save.dirty(),"Opening changed save bytes");
  testInventory(original);
  testNames();
+ testVariantLinks();
+ if(argc==3)testInstalledVariants(original,argv[2]);
  Metadata metadata;Totk model(metadata);model.definitions(save);auto stats=model.stats(save);auto get=[&](const char* name){auto it=std::find_if(stats.begin(),stats.end(),[&](auto& f){return f.field.name==name;});if(it==stats.end())throw Error(std::string("Missing stat: ")+name);return *it;};
  for(auto& field:stats)std::cout<<field.label<<": "<<displayValue(save,field)<<" "<<field.unit<<"\n";
  require(displayValue(save,get("PlayerStatus.CurrentRupee"))=="9142","Wrong fixture rupees");require(displayValue(save,get("PlayerStatus.MaxLife"))=="37","Hearts scaling failed");require(displayValue(save,get("PlayerStatus.MaxStamina"))=="2.2","Stamina scaling failed");require(displayValue(save,get("PlayerStatus.MaxEnergy"))=="39","Battery scaling failed");

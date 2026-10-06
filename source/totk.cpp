@@ -78,7 +78,9 @@ std::string Totk::itemValue(const Save& s,const Item& item) const{
  auto fields=itemFields(s,item);if(fields.empty())return "Owned";auto f=fields.front();auto shown=displayValue(s,f);if(equipment(item.group))return shown+" durability";if(item.group==ItemGroup::Armor)return shown;return "× "+shown;
 }
 std::string Totk::itemDetail(const Save& s,const Item& item) const{
- auto key=prefix(item.group)+"Combined.Name";if(s.count(key)/16>item.ordinal){auto id=s.string(totk::hash(key),64,item.ordinal);if(!id.empty())return "Fused: "+metadata.itemName(id);}return item.group==ItemGroup::Unknown?"Zonai devices":groupName(item.group);
+ auto detail=variantLabel(item.id);auto key=prefix(item.group)+"Combined.Name";if(s.count(key)/16>item.ordinal){auto id=s.string(totk::hash(key),64,item.ordinal);if(!id.empty()){if(!detail.empty())detail+=" · ";detail+="Fused: "+metadata.itemName(id);}}
+ if(equipped(s,item)){if(!detail.empty())detail+=" · ";detail+="Equipped";}
+ return detail.empty()?(item.group==ItemGroup::Unknown?"Zonai devices":groupName(item.group)):detail;
 }
 std::vector<EditField> Totk::matching(const Save& s,const std::function<bool(const Field&)>& predicate) const{
  std::vector<EditField> result;for(auto& pair:metadata.fields){auto& f=pair.second;if(!s.count(f.hash)||!predicate(f))continue;

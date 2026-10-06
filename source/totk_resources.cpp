@@ -26,6 +26,18 @@ void namesFromArchive(Metadata& data,const Bytes& bytes){
   if(table.first=="LocationMsg/Location.msbt"||table.first=="StaticMsg/LocationMarker.msbt")data.locations=readMsbt(table.second);
  }
 }
+[[maybe_unused]] Bytes catalogBundle(const std::vector<Bytes>& tables){
+ Bytes bytes={'Z','C','A','1'};for(auto& table:tables){uint32_t size=uint32_t(table.size());for(unsigned b=0;b<4;++b)bytes.push_back(uint8_t(size>>(b*8)));bytes.insert(bytes.end(),table.begin(),table.end());}return bytes;
+}
+void catalogFromBundle(Metadata& data,const Bytes& bytes){
+ if(bytes.size()<4||std::memcmp(bytes.data(),"ZCA1",4))throw Error("Invalid item catalogue cache.");
+ size_t at=4;Metadata next;
+ for(unsigned i=0;i<3;++i){if(at>bytes.size()||bytes.size()-at<4)throw Error("Incomplete catalogue cache.");uint32_t size=0;for(unsigned b=0;b<4;++b)size|=uint32_t(bytes[at++])<<(b*8);
+  if(size>32*1024*1024||size>bytes.size()-at)throw Error("Invalid catalogue table size.");Bytes table(bytes.begin()+at,bytes.begin()+at+size);at+=size;
+  if(i==0)readTotkItemTable(next,table);else readTotkActorTable(next,table);
+ }
+ if(at!=bytes.size())throw Error("Unexpected catalogue cache data.");data.variants=std::move(next.variants);
+}
 }
 void readTotkCaption(const Bytes& bytes,Slot& slot){
  totk::Save caption(bytes);
@@ -58,10 +70,21 @@ void loadTotkNames(Metadata& data,const std::string& path,const std::function<vo
     if(data.names.empty())throw Error("TOTK item name table was empty.");writeFile(cache+"/messages.sarc",archive);found=true;break;
    }
    if(!found)throw Error("TOTK English item names are unavailable.");
+   std::vector<Bytes> decoded;
+   for(auto prefix:{"PouchActorInfo.Product.","GameActorInfo.Product.","ActorInfo.Product."}){
+    std::vector<std::filesystem::path> tables;
+    for(auto& file:std::filesystem::directory_iterator("ztotk:/RSDB")){
+     auto name=file.path().filename().string();if(name.rfind(prefix,0)==0&&file.path().extension()==".zs")tables.push_back(file.path());
+    }
+    if(tables.size()!=1)throw Error("No unique TOTK item table was found.");decoded.push_back(unpackZstd(readFile(tables.front().string()),dictionaries));
+   }
+   auto bundle=catalogBundle(decoded);catalogFromBundle(data,bundle);writeFile(cache+"/catalog.bin",bundle);
   }catch(const std::exception& e){log(e.what());}
   if(raw)romfsUnmount("ztotk");else fsdevUnmountDevice("ztotk");
  }
 #endif
  if(data.names.empty())try{namesFromArchive(data,readFile(cache+"/messages.sarc"));}catch(const std::exception& e){log(e.what());}
+ if(data.variants.empty())try{catalogFromBundle(data,readFile(cache+"/catalog.bin"));}catch(const std::exception& e){log(e.what());}
+ linkTotkVariants(data);
 }
 }

@@ -269,12 +269,12 @@ static void testInventory(const Bytes &original) {
   require(malformedSave.bytes() == malformed, "Refused layout wrote data");
   for (auto &item : model.items(save))
     if (item.group == ItemGroup::Weapons &&
-        model.itemDetail(save, item).rfind("Fused: ", 0) == 0) {
+        model.itemDetail(save, item).find("Fused: ") != std::string::npos) {
       auto before = save.bytes();
       auto life =
           save.integer(totk::hash("Pouch.Weapon.Content.Life"), item.ordinal);
       model.clearFusion(save, item);
-      require(model.itemDetail(save, item).rfind("Fused: ", 0) != 0,
+      require(model.itemDetail(save, item).find("Fused: ") == std::string::npos,
               "Fuse name not cleared");
       require(save.integer(totk::hash("Pouch.Weapon.Content.Life"),
                            item.ordinal) == life,

@@ -224,10 +224,8 @@ Item Totk::addItem(Save &s, ItemGroup group, const std::string &id) const {
     s.string(totk::hash(key + "Name"), 64, target, id);
     if (s.count(key + "StockNum"))
       s.integer(totk::hash(key + "StockNum"), target, 1);
-    // New equipment starts at one point, explicitly shown in the picker.
-    // Base actor durability is not guessed from an unrelated item's data.
     if (s.count(key + "Life"))
-      s.integer(totk::hash(key + "Life"), target, 1);
+      s.integer(totk::hash(key + "Life"), target, initialDurability(id));
   });
   return {id, size_t(group) * 4096 + target, target, group};
 }

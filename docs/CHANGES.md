@@ -1,5 +1,13 @@
 # Changes
 
+## 0.1.5 alpha 3 (development branch)
+
+- Group TOTK item variants into one catalogue entry with explicit options before Add/Replace. Hylian Hood has independent upgrade level and hood position controls. Weapons expose Decayed/Pristine and applicable appearance options.
+- Show variant labels on owned items; allow changing stars, hood position and weapon condition while preserving other stored values.
+- Add armor body-part and weapon-type filters with L/R, retaining Y search.
+- Read upgrade chains, conversion pairs, model relationships and base durability from installed game tables; cache locally without bundling game assets. New equipment uses its base durability when available.
+- Validate mappings against installed 1.4.3 resources and test identity-only writes, option cancellation, exact undo/redo and both games' interfaces.
+
 ## 0.1.5 alpha 2 (development branch)
 
 - TOTK inventory add/replace/duplicate/remove, equip toggles, fuse removal, stack filling and meal-effect choices.

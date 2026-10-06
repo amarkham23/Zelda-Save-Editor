@@ -6,6 +6,11 @@ namespace zse {
 struct Slot;
 void readTotkCaption(const Bytes& bytes,Slot& slot);
 void loadTotkNames(Metadata& metadata,const std::string& dataPath,const std::function<void(const std::string&)>& log);
+void readTotkItemTable(Metadata& metadata,const Bytes& table);
+void readTotkActorTable(Metadata& metadata,const Bytes& table);
+void linkTotkVariants(Metadata& metadata);
+enum class VariantProperty { Stars, Style, Condition };
+struct ItemFamily { std::string id,name,detail;std::vector<std::string> ids; };
 class Totk {
 public:
  explicit Totk(Metadata& metadata):metadata(metadata){}
@@ -23,6 +28,11 @@ public:
  size_t capacity(const Save& save,ItemGroup group) const;
  size_t availableSlots(const Save& save,ItemGroup group) const;
  std::vector<std::string> catalog(const Save& save,ItemGroup group) const;
+ std::vector<ItemFamily> families(const Save& save,ItemGroup group) const;
+ std::string variantLabel(const std::string& id) const;
+ int initialDurability(const std::string& id) const;
+ std::vector<std::pair<std::string,std::string>> variantOptions(const Save& save,ItemGroup group,const std::string& id,VariantProperty property) const;
+ void changeVariant(Save& save,const Item& item,const std::string& id) const;
  bool canManage(ItemGroup group) const;
  bool canManage(const Item& item) const;
  bool canDuplicate(ItemGroup group) const;

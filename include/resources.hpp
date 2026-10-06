@@ -15,10 +15,19 @@ struct Field {
     size_t width=1;
     bool array=false;
 };
+// Facts read from the installed game's item tables, never a bundled item DB.
+struct ItemVariant {
+    std::string family, nextArmor, style, condition;
+    std::string category, conversion, alias, model, modelProject;
+    int stars=-1;
+    int durability=0,performance=-1;
+    bool armor=false;
+};
 struct Metadata {
     std::map<uint32_t,Field> fields;
     std::map<std::string,std::string> names;
     std::map<std::string,std::string> locations;
+    std::map<std::string,ItemVariant> variants;
     void loadGameData(const Bytes& bootup);
     void loadMessages(const Bytes& languagePack);
     std::string itemName(const std::string& id) const;
@@ -28,6 +37,7 @@ struct Metadata {
 struct ByNode {
     uint8_t type=0xff;
     uint32_t number=0;
+    uint64_t wide=0;
     std::string text;
     std::vector<ByNode> array;
     std::map<std::string,ByNode> dict;

@@ -55,7 +55,8 @@ struct ByReader {
                 for(size_t i=0;i<n;++i){size_t e=p+4+i*8;uint32_t key=r.u24(e);if(key>=keys.size())throw Error("Invalid BYML key index.");node.dict.emplace(keys[key],value(r.u8(e+3),r.u32(e+4),depth+1));}
             }
             active.erase(p);
-        } else if(type!=0xd0&&type!=0xd1&&type!=0xd2&&type!=0xd3&&type!=0xff) throw Error("Unsupported BYML value type.");
+        } else if(type==0xd4||type==0xd5||type==0xd6){r.check(raw,8);node.wide=r.be?(uint64_t(r.u32(raw))<<32)|r.u32(raw+4):uint64_t(r.u32(raw))|(uint64_t(r.u32(raw+4))<<32);}
+        else if(type!=0xd0&&type!=0xd1&&type!=0xd2&&type!=0xd3&&type!=0xff) throw Error("Unsupported BYML value type.");
         return node;
     }
 };
@@ -104,7 +105,7 @@ const ByNode* ByNode::get(const std::string& key) const { auto it=dict.find(key)
 ByNode readByml(const Bytes& bytes) {
     Reader r{bytes};r.check(0,16);
     if(r.magic(0,"BY",2))r.be=true;else if(!r.magic(0,"YB",2))throw Error("Invalid BYML header.");
-    if(r.u16(2)!=2&&r.u16(2)!=3)throw Error("Unsupported BYML version.");
+    if(r.u16(2)<2||r.u16(2)>7)throw Error("Unsupported BYML version.");
     ByReader br{r,{},{},{},0};br.keys=br.table(r.u32(4));br.strings=br.table(r.u32(8));
     auto root=r.u32(12);if(!root)return {};return br.value(r.u8(root),root,0);
 }

@@ -83,7 +83,7 @@ public:
     void present(){if(!capturePath.empty()){shot(capturePath);capturePath.clear();}SDL_RenderPresent(renderer);}
     void shot(const std::string& path){auto s=SDL_CreateRGBSurfaceWithFormat(0,1280,720,32,SDL_PIXELFORMAT_RGBA32);SDL_RenderReadPixels(renderer,nullptr,s->format->format,s->pixels,s->pitch);IMG_SavePNG(s,path.c_str());SDL_FreeSurface(s);}
 };
-enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap,Choices };
+enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap,Choices,ConfigureItem,VariantChoices };
 enum class SaveTab {Normal,Profile2,Master,Other};
 struct Frame {
     View view=View::Games;
@@ -94,6 +94,10 @@ struct Frame {
     Item item;
     EditField choice;
     bool expanded=false,replacement=false;
+    std::string candidate;
+    VariantProperty variantProperty=VariantProperty::Stars;
+    bool pendingVariant=false;
+    int catalogFilter=0;
     SaveTab saveTab=SaveTab::Normal;
 };
 struct Row {std::string title,subtitle,value;std::function<void()> action;bool danger=false;};
@@ -117,10 +121,25 @@ public:
     bool running=true,dirty=true,rebuild=true;
     std::string toast;
     uint64_t toastUntil=0;
-    App():canvas(platform),game(metadata),tears(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.5 TOTK alpha 2";stack.push_back(f);}
+    App():canvas(platform),game(metadata),tears(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.5 TOTK alpha 3";stack.push_back(f);}
     bool isTotk() const {return selectedGame==Game::Totk;}
     std::vector<Item> items() const {return isTotk()?tears.items(*save):game.items(*save);}
     std::string sectionName(ItemGroup group) const {return isTotk()&&group==ItemGroup::Unknown?"Zonai devices":groupName(group);}
+    std::vector<std::string> catalogFilters(ItemGroup group) const {
+        if(group==ItemGroup::Armor)return {"All armor","Head","Torso","Legs"};
+        if(group==ItemGroup::Weapons)return {"All weapons","One-handed","Two-handed","Spears"};
+        return {sectionName(group)};
+    }
+    bool inCatalogFilter(const std::string& id) const {
+        int filter=stack.back().catalogFilter;if(!filter)return true;
+        if(stack.back().group==ItemGroup::Armor){auto part=id.substr(id.rfind('_')+1);return part==std::array<const char*,4>{"","Head","Upper","Lower"}[filter];}
+        if(stack.back().group==ItemGroup::Weapons)return id.rfind(std::array<const char*,4>{"","Weapon_Sword_","Weapon_Lsword_","Weapon_Spear_"}[filter],0)==0;
+        return true;
+    }
+    void chooseVariant(const Item& item,VariantProperty property,bool pending){
+        auto title=property==VariantProperty::Stars?"Upgrade level":property==VariantProperty::Style?"Appearance":"Weapon condition";
+        push(View::VariantChoices,title,metadata.itemName(item.id));current().item=item;current().group=item.group;current().candidate=item.id;current().variantProperty=property;current().pendingVariant=pending;
+    }
     void selectGame(Game selected){
         save.reset();selectedGame=selected;metadata={};
         busy("Reading game resources",gameName(selected),[&]{platform.loadMetadata(metadata,selected);});
@@ -215,7 +234,7 @@ public:
             const char* themes[]={"Automatic","Light","Dark","OLED black"};std::string theme=themes[int(platform.settings.theme)];
             r.push_back({"Appearance",platform.settings.theme==Theme::Oled?"Pure black backgrounds for OLED screens":"Automatic follows your Switch theme",theme,[this]{platform.settings.theme=Theme((int(platform.settings.theme)+1)%4);platform.saveSettings();}});
             r.push_back({"Navigation sounds",platform.nativeSounds?"Loaded from this Switch's HOME menu":"System sounds are unavailable in this session",platform.settings.sound?"On":"Off",[this]{platform.settings.sound=!platform.settings.sound;platform.saveSettings();platform.cue(Cue::Confirm);}});
-            r.push_back({"About","Zelda Save Editor · 0.1.5 TOTK alpha 2","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
+            r.push_back({"About","Zelda Save Editor · 0.1.5 TOTK alpha 3","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
             r.push_back({"Game resources",platform.resourceStatus,"Reload",[this]{busy("Reading game resources","Loading names and definitions from your installed game",[&]{metadata={};platform.loadMetadata(metadata,selectedGame);if(save&&isTotk())tears.definitions(*save);});notice(platform.resourceStatus);}});
         }else if(view==View::Fields){
             for(auto field:current().fields){if(!matches(field.label+" "+field.field.name))continue;size_t n=save->count(field.field.hash)/(field.field.kind==Kind::String?field.field.width:1);
@@ -230,19 +249,25 @@ public:
                 std::string valueLabel=equipment?std::to_string(value/100)+" durability":item.group==ItemGroup::Armor?(value?"Dyed":"Original color"):"× "+std::to_string(value);
                 r.push_back({metadata.itemName(item.id),save->word(hashName("PorchItem_EquipFlag"),item.index)?"Equipped":groupName(item.group),valueLabel,[this,item]{push(View::Item,metadata.itemName(item.id),groupName(item.group));current().item=item;}});
             }
-            if(!isTotk()||tears.canManage(current().group))r.push_back({"Add item","Choose from your game's item catalogue",isTotk()?std::to_string(tears.availableSlots(*save,current().group))+" free":"+",[this]{auto group=current().group;bool equipment=group==ItemGroup::Weapons||group==ItemGroup::Bows||group==ItemGroup::Shields;push(View::Picker,"Add item",isTotk()&&equipment?"New equipment starts at 1 durability · Adjust it after adding":sectionName(group));current().group=group;}});
+            if(!isTotk()||tears.canManage(current().group))r.push_back({"Add item","Choose from your game's item catalogue",isTotk()?std::to_string(tears.availableSlots(*save,current().group))+" free":"+",[this]{auto group=current().group;push(View::Picker,"Add item",sectionName(group));current().group=group;}});
             if(isTotk()&&(current().group==ItemGroup::Materials||current().group==ItemGroup::Arrows||current().group==ItemGroup::Unknown))r.push_back({"Fill stacks","Set the quantity of every owned item in this section to 999","",[this]{auto group=current().group;confirm("Fill these stacks?","All owned "+sectionName(group)+" stacks in the ordinary pouch will be set to 999. This can be undone before saving.","Fill stacks",[this,group]{tears.fillStacks(*save,group);notice("Stacks filled");});}});
         }else if(view==View::Item){auto item=current().item;
+            if(isTotk())for(auto property:{VariantProperty::Stars,VariantProperty::Style,VariantProperty::Condition}){
+                auto choices=tears.variantOptions(*save,item.group,item.id,property);if(choices.size()<2)continue;
+                auto label=property==VariantProperty::Stars?"Upgrade level":property==VariantProperty::Style?(choices.front().second.rfind("Hood ",0)==0?"Hood position":"Appearance"):"Condition";
+                std::string value;for(auto& choice:choices)if(choice.first==item.id)value=choice.second;
+                r.push_back({label,"Keeps this item's other settings",value,[this,item,property]{chooseVariant(item,property,false);}});
+            }
             if(isTotk()&&tears.itemFields(*save,item).empty())r.push_back({"Owned item","No editable quantity is stored for this item","",[this]{message("Owned item","This item uses an ownership marker. Quantity editing is unavailable for it.");}});
-            if(!isTotk()||tears.canManage(item))r.push_back({"Replace item",isTotk()?"Keeps this item's values and fused material":"Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",sectionName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
-            if(isTotk()&&(item.group==ItemGroup::Weapons||item.group==ItemGroup::Bows||item.group==ItemGroup::Shields||item.group==ItemGroup::Armor))r.push_back({"Equipped","Changes the ordinary pouch only",tears.equipped(*save,item)?"Yes":"No",[this,item]{tears.equipItem(*save,item);}});
+            if(!isTotk()||tears.canManage(item))r.push_back({"Replace item",isTotk()?(item.group==ItemGroup::Armor?"Keeps dye color and equipped state":item.group==ItemGroup::Food?"Keeps meal values and ingredients":item.group==ItemGroup::Weapons||item.group==ItemGroup::Shields?"Keeps durability, bonuses and fused material":item.group==ItemGroup::Bows?"Keeps durability and bonuses":"Keeps the current quantity"):"Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",sectionName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
+            if(isTotk()&&(item.group==ItemGroup::Weapons||item.group==ItemGroup::Bows||item.group==ItemGroup::Shields||item.group==ItemGroup::Armor))r.push_back({"Equipped","Equip this item when loading the save",tears.equipped(*save,item)?"Yes":"No",[this,item]{tears.equipItem(*save,item);current().subtitle=tears.itemDetail(*save,item);}});
             for(auto f:(isTotk()?tears.itemFields(*save,item):game.itemFields(*save,item))){
                 if(f.label=="Modifier flags")r.push_back({"Modifier","Choose an equipment bonus","Choose",[this,item]{push(View::Modifiers,"Equipment modifier");current().item=item;}});
                 else if(f.label=="Equipped")r.push_back({f.label,"",displayValue(*save,f),[this,item]{game.equipItem(*save,item);}});
                 else r.push_back({f.label,f.description,shown(f),[this,f]{editField(f);}});
             }
-            if(isTotk()&&tears.canManage(item)&&tears.canDuplicate(item.group))r.push_back({"Duplicate item","Copies its values, fuse data and meal ingredients","",[this,item]{tears.duplicateItem(*save,item);notice("Item duplicated");}});
-            if(isTotk()&&tears.itemDetail(*save,item).rfind("Fused: ",0)==0)r.push_back({"Remove fused material","Keeps the base item and its current durability","",[this,item]{confirm("Remove fused material?","The attachment and its fuse bonus will be removed. The base item stays in your pouch.","Remove fuse",[this,item]{tears.clearFusion(*save,item);current().subtitle=tears.itemDetail(*save,item);notice("Fused material removed");});}});
+            if(isTotk()&&tears.canManage(item)&&tears.canDuplicate(item.group))r.push_back({"Duplicate item",item.group==ItemGroup::Armor?"Copies upgrade level, appearance and dye":item.group==ItemGroup::Food?"Copies meal values and ingredients":item.group==ItemGroup::Bows?"Copies durability and bonuses":"Copies durability, bonuses and fused material","",[this,item]{tears.duplicateItem(*save,item);notice("Item duplicated");}});
+            if(isTotk()&&tears.itemDetail(*save,item).find("Fused: ")!=std::string::npos)r.push_back({"Remove fused material","Keeps the base item and its current durability","",[this,item]{confirm("Remove fused material?","The attachment and its fuse bonus will be removed. The base item stays in your pouch.","Remove fuse",[this,item]{tears.clearFusion(*save,item);current().subtitle=tears.itemDetail(*save,item);notice("Fused material removed");});}});
             if(!isTotk()||tears.canManage(item))r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{if(isTotk())tears.removeItem(*save,item);else game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
         }else if(view==View::Modifiers){
             auto item=current().item;EditField flags;for(auto f:game.itemFields(*save,item))if(f.label=="Modifier flags")flags=f;
@@ -253,16 +278,39 @@ public:
             }
             r.push_back({"Gold tier","Enhanced equipment bonus",currentValue&0x80000000u?"On":"Off",[this,flags,currentValue]{setValue(*save,flags,std::to_string(currentValue^0x80000000u));}});
         }else if(view==View::Picker&&isTotk()){
-            for(auto id:tears.catalog(*save,current().group)){
-                if(!matches(id+" "+metadata.itemName(id)))continue;
-                if(current().replacement&&current().group==ItemGroup::Armor&&id.substr(id.rfind('_')+1)!=current().item.id.substr(current().item.id.rfind('_')+1))continue;
-                r.push_back({metadata.itemName(id),id,"",[this,id]{
-                    if(current().replacement){auto item=current().item;tears.replaceItem(*save,item,id);stack.pop_back();current().item.id=id;current().title=metadata.itemName(id);current().subtitle=tears.itemDetail(*save,current().item);}
-                    else{auto group=current().group;auto item=tears.addItem(*save,group,id);stack.pop_back();push(View::Item,metadata.itemName(id),tears.itemDetail(*save,item));current().item=item;}
-                    notice("Inventory updated");
+            for(auto family:tears.families(*save,current().group)){
+                std::string searchable=family.name+" "+family.detail;for(auto& id:family.ids)searchable+=" "+id;
+                if(!matches(searchable)||!inCatalogFilter(family.id))continue;
+                if(current().replacement&&current().group==ItemGroup::Armor&&family.id.substr(family.id.rfind('_')+1)!=current().item.id.substr(current().item.id.rfind('_')+1))continue;
+                r.push_back({family.name,family.detail,family.ids.size()>1?"Options":"Choose",[this,family]{
+                    auto group=current().group;auto existing=current().item;bool replacement=current().replacement;
+                    push(View::ConfigureItem,family.name,"Choose options before changing your inventory");current().candidate=family.id;current().group=group;current().item=existing;current().replacement=replacement;
                 }});
             }
-            std::sort(r.begin(),r.end(),[](auto& a,auto& b){return a.title<b.title;});
+        }else if(view==View::ConfigureItem){
+            auto id=current().candidate;auto group=current().group;bool hasOptions=false;
+            for(auto property:{VariantProperty::Stars,VariantProperty::Style,VariantProperty::Condition}){
+                auto choices=tears.variantOptions(*save,group,id,property);if(choices.empty())continue;
+                std::string value;for(auto& choice:choices)if(choice.first==id)value=choice.second;
+                auto label=property==VariantProperty::Stars?"Upgrade level":property==VariantProperty::Style?(choices.front().second.rfind("Hood ",0)==0?"Hood position":"Appearance"):"Condition";
+                if(choices.size()>1){hasOptions=true;r.push_back({label,"",value,[this,id,group,property]{chooseVariant(Item{id,0,0,group},property,true);}});}
+                else r.push_back({label,"This item has one available option",value,{}});
+            }
+            if(!hasOptions&&r.empty())r.push_back({metadata.variants.count(id)?"Standard item":"Item options unavailable",metadata.variants.count(id)?"No alternate styles or upgrades":"Reload Game resources in Settings to check variants","",{}});
+            if(current().replacement)r.push_back({"Existing settings","Durability, dye, bonuses and fuse data are retained","",{}});
+            else if(group==ItemGroup::Weapons||group==ItemGroup::Bows||group==ItemGroup::Shields){auto found=metadata.variants.find(id);bool known=found!=metadata.variants.end()&&found->second.durability>0;r.push_back({"Starting durability",known?"Full base durability from the installed game":"Game stats unavailable · Adjust after adding",std::to_string(tears.initialDurability(id)),{}});}
+            r.push_back({current().replacement?"Replace item":"Add to inventory",metadata.itemName(id),"Confirm",[this,id,group]{
+                auto existing=current().item;bool replacement=current().replacement;
+                if(replacement){tears.replaceItem(*save,existing,id);back();back();current().item.id=id;current().title=metadata.itemName(id);current().subtitle=tears.itemDetail(*save,current().item);}
+                else{auto item=tears.addItem(*save,group,id);back();back();push(View::Item,metadata.itemName(id),tears.itemDetail(*save,item));current().item=item;}
+                notice("Inventory updated");
+            }});
+        }else if(view==View::VariantChoices){
+            auto item=current().item;auto pending=current().pendingVariant;auto property=current().variantProperty;
+            for(auto option:tears.variantOptions(*save,item.group,item.id,property))r.push_back({option.second,"",option.first==item.id?"Selected":"",[this,item,option,pending]{
+                if(pending){back();current().candidate=option.first;}
+                else{tears.changeVariant(*save,item,option.first);back();current().item.id=option.first;current().title=metadata.itemName(option.first);current().subtitle=tears.itemDetail(*save,current().item);notice("Item updated");}
+            }});
         }else if(view==View::Picker){
             for(auto& pair:metadata.names){if(itemGroup(pair.first)!=current().group||!matches(pair.first+" "+pair.second))continue;
                 // A pickup flag or inventory timestamp verifies that this is an inventory actor.
@@ -293,7 +341,7 @@ public:
         std::string controls=current().view==View::Games?"X  Settings    B  Exit    A  Select":"X  Settings    B  Back    A  Select";
         if(current().view==View::Settings)controls="B  Back    A  Select";
         if(current().view==View::Slots&&!isTotk())controls=current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2?"L / R  Tabs    Y  Swap saves    X  Settings    B  Back    A  Select":"L / R  Tabs    X  Settings    B  Back    A  Select";
-        if(save&&current().view!=View::Settings){controls="ZL  Undo    ZR  Redo    ";if(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)controls+="Y  Search    ";controls+="+  Save    X  Settings    B  Back    A  Select";}
+        if(save&&current().view!=View::Settings){controls="ZL  Undo    ZR  Redo    ";if(current().view==View::Picker&&isTotk()&&catalogFilters(current().group).size()>1)controls="L/R  Filter    ";if(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)controls+="Y  Search    ";controls+="+  Save    X  Settings    B  Back    A  Select";}
         c.text(controls,330,670,21,c.p.text,890,true);
     }
     void loading(const std::string& title,const std::string& sub){
@@ -366,8 +414,8 @@ public:
             else c.text("Page "+std::to_string(page+1)+" / "+std::to_string((entries.size()+pageSize-1)/pageSize),900,616,18,c.p.muted,314,true);
         }else{
             // A fixed row grid keeps type size and value alignment constant while navigating.
-            c.text(f.view==View::Inventory?sectionName(f.group):f.view==View::Settings?"Preferences":f.view==View::Swap?"Game profiles":gameName(selectedGame),48,155,25,c.p.text,246);
-            c.wrapped(f.view==View::Settings?"Make the editor feel at home.":f.view==View::Swap?"Switch between two normal adventures. Both sets of saves are retained.":f.view==View::Inventory?"L / R\nChange section":f.filter.empty()?"Choose a value to edit. Changes stay here until you save.":"Search: "+f.filter,48,209,240,21,c.p.muted,6);
+            c.text(f.view==View::Picker&&isTotk()?catalogFilters(f.group)[f.catalogFilter]:f.view==View::Inventory?sectionName(f.group):f.view==View::Settings?"Preferences":f.view==View::Swap?"Game profiles":gameName(selectedGame),48,155,25,c.p.text,246);
+            c.wrapped(f.view==View::Settings?"Make the editor feel at home.":f.view==View::Swap?"Switch between two normal adventures. Both sets of saves are retained.":f.view==View::Inventory?"L / R\nChange section":f.view==View::Picker&&isTotk()&&f.filter.empty()?(catalogFilters(f.group).size()>1?"Choose an item, then its options.\n\nL / R   Filter\nY   Search":"Choose an item, then its options.\n\nY   Search"):f.filter.empty()?"Choose a value to edit. Changes stay here until you save.":"Search: "+f.filter,48,209,240,21,c.p.muted,6);
             if(save&&f.view!=View::Settings){c.text(std::to_string(save->changedWords())+" changes",48,548,22,c.p.accent,238);c.text("+  Save changes",48,584,21,c.p.muted,238);}
             c.rect(310,151,1,475,c.p.line);
             const int visible=6;int end=std::min(int(entries.size()),f.scroll+visible);
@@ -421,6 +469,7 @@ public:
             if(input.down&ZR){if(save->redo()){notice("Edit restored");historyChanged();}else notice("Nothing to redo");return;}
         }
         if(input.down&Y&&(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)){tryAction([this]{search();});return;}
+        if(current().view==View::Picker&&isTotk()&&(input.down&(L|R))){int count=int(catalogFilters(current().group).size());current().catalogFilter=(current().catalogFilter+((input.down&R)?1:count-1))%count;current().selected=0;current().scroll=0;dirty=true;rebuild=true;platform.cue(Cue::Focus);return;}
         if(current().view==View::Inventory&&(input.down&(L|R))){int direction=(input.down&R)?1:-1;current().group=ItemGroup((int(current().group)+direction+9)%9);current().selected=0;current().scroll=0;platform.cue(Cue::Focus);dirty=true;rebuild=true;return;}
         auto& f=current();int movement=0;int cols=f.view==View::Profiles?4:1;
         if(input.down&Up)movement-=cols;if(input.down&Down)movement+=cols;
@@ -457,7 +506,7 @@ public:
             tears.removeItem(*save,lastWeapon);auto freeSlot=save->bytes();
             for(auto row:rows())if(row.title=="Add item"){row.action();break;}
             ensure(current().view==View::Picker&&!rows().empty(),"TOTK catalogue missing");screenshot("preview/totk-catalogue.png");
-            auto add=rows().front().action;add();ensure(current().view==View::Item,"New item does not open for customization");screenshot("preview/totk-new-item.png");
+            auto add=rows().front().action;add();ensure(current().view==View::ConfigureItem,"Item options missing");ensure(save->bytes()==freeSlot,"Choosing an item changed the save before confirmation");screenshot("preview/totk-item-options.png");auto apply=rows().back().action;apply();ensure(current().view==View::Item,"New item does not open for customization");screenshot("preview/totk-new-item.png");
             handle(Input{ZL},rows());ensure(current().view==View::Inventory&&save->bytes()==freeSlot,"Undo retained stale item callbacks");
             handle(Input{ZL},rows());ensure(save->bytes()==before,"UI undo failed to restore fixture");
             current().group=ItemGroup::Food;current().selected=0;handle(Input{A},rows());screenshot("preview/totk-meal.png");
@@ -465,6 +514,34 @@ public:
             ensure(current().view==View::Choices,"Meal effect picker missing");screenshot("preview/totk-meal-effects.png");back();back();
             current().group=ItemGroup::Materials;current().selected=int(rows().size())-1;current().scroll=std::max(0,current().selected-5);screenshot("preview/totk-fill-stacks.png");
             ensure(save->bytes()==before,"Browsing new screens edited data");
+            // Exercise pending options against private installed tables. No
+            // live save write or commit is called by the UI walkthrough.
+            if(!metadata.variants.empty()){
+                auto choose=[&](const std::string& title){for(auto row:rows())if(row.title==title){ensure(bool(row.action),"Test row is not selectable");row.action();return;}throw Error("UI test row missing: "+title);};
+                current().group=ItemGroup::Armor;current().selected=0;current().scroll=0;
+                choose("Add item");ensure(current().view==View::Picker,"Armor catalogue missing");
+                unsigned hoods=0;for(auto row:rows())hoods+=row.title=="Hylian Hood";ensure(hoods==1,"Repeated Hylian Hood choices remain");
+                handle(Input{R},rows());ensure(current().catalogFilter==1,"Head filter missing");
+                auto heads=rows();ensure(heads.size()<100,"Head filter did not shorten the list");
+                for(auto row:heads){row.action();ensure(current().candidate.size()>5&&current().candidate.substr(current().candidate.size()-5)=="_Head","Non-head item in Head filter");back();}
+                toast.clear();current().filter="hylian";screenshot("preview/totk-armor-catalogue.png");choose("Hylian Hood");
+                choose("Upgrade level");choose("4 stars");ensure(current().candidate=="Armor_015_Head","Wrong four-star hood");
+                choose("Hood position");choose("Hood down");ensure(current().candidate=="Armor_1156_Head","Changing hood position lost stars");
+                ensure(save->bytes()==before,"Pending item options changed save");screenshot("preview/totk-hood-options.png");
+                back();back();ensure(save->bytes()==before,"Cancelling item creation changed save");
+                choose("Add item");choose("Hylian Hood");choose("Upgrade level");choose("4 stars");choose("Hood position");choose("Hood down");
+                choose("Add to inventory");ensure(current().view==View::Item&&current().item.id=="Armor_1156_Head","Confirmed hood options were ignored");
+                choose("Hood position");choose("Hood up");ensure(current().item.id=="Armor_015_Head","Owned hood style changed stars");
+                choose("Upgrade level");choose("2 stars");ensure(current().item.id=="Armor_003_Head","Owned hood upgrades changed style");
+                platform.settings.theme=Theme::Oled;toast.clear();screenshot("preview/totk-hood-detail.png");platform.settings.theme=Theme::Dark;
+                handle(Input{ZL},rows());handle(Input{ZL},rows());handle(Input{ZL},rows());ensure(save->bytes()==before,"Hood UI edits failed exact undo");
+                current().group=ItemGroup::Weapons;choose("Add item");handle(Input{R},rows());ensure(current().catalogFilter==1,"One-handed filter missing");
+                toast.clear();current().filter="traveler";screenshot("preview/totk-weapon-catalogue.png");ensure(rows().size()==1,"Traveler's Sword duplicated or filter leaked weapon types");choose("Traveler's Sword");
+                choose("Condition");choose("Decayed");ensure(current().candidate=="Weapon_Sword_106","Wrong decayed sword");
+                bool life=false;for(auto row:rows())if(row.title=="Starting durability")life=row.value=="16";ensure(life,"Wrong durability shown for decayed sword");
+                screenshot("preview/totk-weapon-options.png");choose("Condition");choose("Pristine");ensure(current().candidate=="Weapon_Sword_001","Wrong pristine sword");
+                back();back();ensure(save->bytes()==before,"Weapon option browsing edited data");
+            }
             // Restore the item-level depth expected by the shared Back-path check.
             current().group=ItemGroup::Weapons;current().selected=0;current().scroll=0;handle(Input{A},rows());
             back();back();back();back();ensure(current().view==View::Games,"TOTK back path incorrect");selectGame(Game::Botw);ensure(!isTotk()&&tabCount()>=3,"BOTW selection was contaminated by TOTK");
