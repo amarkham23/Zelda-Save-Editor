@@ -1,5 +1,13 @@
 # Changes
 
+## 0.1.5 alpha 4 (quality pass)
+
+- Reject BOTW pouch limits below the number of owned items and current hearts above the maximum.
+- Reject stale BOTW item references and cross-body-part armor replacement. Undo/Redo leaves inventory detail/picker screens in both games so captured selections cannot target a different item.
+- Cache change counts between edits, making redraw checks constant-time. Preserve document bytes if edit journal allocation fails; refuse history changes inside an edit transaction.
+- Remove the unused legacy save-card renderer and honor explicit line breaks in help text. Move desktop UI walkthroughs into the test directory and centralize build/display version in VERSION.
+- Pass 580 BOTW/core checks, 1,999 TOTK checks, storage checks, 230 swap checks, both UI walkthroughs and the Switch build.
+
 ## 0.1.5 alpha 3 (development branch)
 
 - Group TOTK item variants into one catalogue entry with explicit options before Add/Replace. Hylian Hood has independent upgrade level and hood position controls. Weapons expose Decayed/Pristine and applicable appearance options.

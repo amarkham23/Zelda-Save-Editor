@@ -38,8 +38,44 @@ static void synthetic(){
     yaz[16]=0;rejects([&]{decompress(yaz);},"Yaz0 bad backref");
     rejects([&]{unpackSarc(Bytes(32));},"invalid SARC");rejects([&]{readByml(Bytes(32));},"invalid BYML");rejects([&]{readMsbt(Bytes(32));},"invalid MSBT");
 }
+static void qualityRegressions(){
+    for(bool be:{false,true}){
+        auto original=fixture(be);Save s(original);auto h=hashName("Integer");
+        auto verify=[&]{size_t count=0;for(auto& field:s.fields())for(auto at:field.second)count+=std::memcmp(s.bytes().data()+at,s.original().data()+at,4)!=0;expect(s.changedWords()==count&&s.dirty()==(count!=0),"cached change count agrees with bytes");};
+        s.edit("one",[&]{s.word(h,0,1);});verify();s.undo();verify();s.redo();verify();
+        s.edit("original value",[&]{s.word(h,0,0);});verify();s.undo();verify();
+        s.edit("new branch",[&]{s.word(h,0,2);});verify();expect(!s.redo(),"new edit clears redo history");
+        auto before=s.bytes();rejects([&]{s.edit("rollback",[&]{s.word(h,0,9);throw Error("test");});},"failed edit");expect(s.bytes()==before,"rollback preserves bytes");verify();
+        for(auto action:{0,1,2})rejects([&]{s.edit("nested history",[&]{s.word(h,0,20);if(action==0)s.undo();else if(action==1)s.redo();else s.accepted();});},"history mutation during transaction");
+        expect(s.bytes()==before,"history refusal rolls back action");verify();
+        s.edit("text",[&]{s.string(hashName("Text"),32,0,"hello");});verify();s.undo();verify();s.redo();verify();
+        for(unsigned i=3;i<110;++i)s.edit("bounded",[&]{s.word(h,0,i);});
+        expect(s.undoCount()==100,"bounded history");while(s.undo())verify();while(s.redo())verify();s.accepted();verify();
+    }
+    Bytes b;append(b,0x471e);append(b,0xffffffff);append(b,1);
+    for(auto key:{"WeaponPorchStockNum","BowPorchStockNum","ShieldPorchStockNum","MaxHartValue","CurrentHart"}){append(b,hashName(key));append(b,12);}
+    for(unsigned i=0;i<12*16;++i){append(b,hashName("PorchItem"));append(b,0);}
+    for(unsigned i=0;i<12;++i){append(b,hashName("PorchItem_EquipFlag"));append(b,0);}
+    append(b,0xffffffff);Save s(b);
+    s.edit("setup",[&]{for(unsigned i=0;i<9;++i)s.string(hashName("PorchItem"),64,i,"Weapon_Sword_001");s.string(hashName("PorchItem"),64,9,"Armor_001_Head");s.string(hashName("PorchItem"),64,10,"Item_Fruit_A");});s.accepted();auto original=s.bytes();
+    Metadata m;Botw game(m);
+    EditField capacity;capacity.field={"WeaponPorchStockNum",hashName("WeaponPorchStockNum"),Kind::Int};capacity.label="Weapon slots";capacity.minimum=8;capacity.maximum=20;capacity.whole=true;
+    rejects([&]{setValue(s,capacity,"8");},"BOTW capacity cannot hide owned weapons");expect(s.bytes()==original,"capacity refusal unchanged");
+    setValue(s,capacity,"9");expect(s.integer(capacity.field.hash)==9,"exact owned capacity accepted");s.undo();
+    EditField life;life.field={"CurrentHart",hashName("CurrentHart"),Kind::Int};life.label="Current hearts";life.scale=4;life.minimum=0;life.maximum=30;
+    rejects([&]{setValue(s,life,"3.25");},"BOTW current hearts cannot exceed maximum");
+    auto all=game.items(s);auto hood=all[9];rejects([&]{game.replaceItem(s,hood,"Armor_001_Upper");},"BOTW cross-part armor replacement");
+    auto stale=all.front();stale.id="Weapon_Sword_002";
+    rejects([&]{game.replaceItem(s,stale,"Weapon_Sword_003");},"BOTW stale replacement");
+    rejects([&]{game.removeItem(s,stale);},"BOTW stale removal");
+    rejects([&]{game.equipItem(s,stale);},"BOTW stale equip");
+    rejects([&]{game.equipItem(s,all[10]);},"BOTW material equip");
+    expect(s.bytes()==original,"refused inventory operations unchanged");
+    game.replaceItem(s,hood,"Armor_002_Head");expect(s.string(hashName("PorchItem"),64,9)=="Armor_002_Head","BOTW same-part armor replacement");expect(s.undo()&&s.bytes()==original,"replacement undo exact");
+}
 int main(int argc,char** argv){try{
     synthetic();
+    qualityRegressions();
     if(argc>1){
         auto original=readFile(argv[1]);Save s(original);expect(s.bytes()==original,"real no-op exact bytes");
         uint32_t h=hashName("PorchItem_Value1");if(s.count(h)){auto value=s.integer(h);s.edit("one item",[&]{s.integer(h,0,value==999?998:999);});

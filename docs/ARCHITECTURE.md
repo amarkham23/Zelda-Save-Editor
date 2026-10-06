@@ -11,7 +11,7 @@ The existing personal fork was preserved in its original directory and was not u
 
 ## Layers
 
-`save.cpp` owns BOTW's byte-preserving document and edit journal. The format is a header, repeated hash/value words, and a trailing marker. A transaction may change existing value bytes only. Failed transactions restore their snapshot. A no-op load does not reserialize or reorder the input.
+`save.cpp` owns BOTW's byte-preserving document and edit journal. The format is a header, repeated hash/value words, and a trailing marker. A transaction may change existing value bytes only. Failed transactions restore their snapshot, including failures while building the edit journal. Change counts are updated after transactions and while undoing/redoing patches; redraws do not scan the save. A no-op load does not reserialize or reorder the input.
 
 `resources.cpp` contains bounded SARC, Yaz0, BYML and MSBT readers. It derives field types and item labels from installed game resources. Synthetic dictionary entries whose hashes do not match their names are skipped. No third-party editor tables are compiled into the application.
 
@@ -19,7 +19,7 @@ The existing personal fork was preserved in its original directory and was not u
 
 `platform.cpp` owns Switch services, profiles, save mounting, software keyboard, system sound loading, preferences and verified backups. Saves are mounted read-only for browsing. A writable mount exists only during an explicit save operation. The live file must still match the originally opened bytes before writing. A verified SD backup is required; a write failure triggers an attempted restoration and reports the backup path.
 
-`ui.cpp` owns the HOS-style screen stack and widgets. It has no save-format knowledge beyond typed fields and the BOTW adapter. Navigation actions only move focus. List geometry and typography are fixed. Large advanced lists are rebuilt only after data or screen changes.
+`ui.cpp` owns the HOS-style screen stack and widgets. It uses typed fields and the BOTW/TOTK adapters. Host walkthroughs are included from `tests/ui_walkthroughs.inc`; they are excluded from Switch builds. Navigation actions only move focus. List geometry and typography are fixed. Large advanced lists are rebuilt only after data or screen changes.
 
 Blocking file operations use a single joined SDL worker, while all rendering, font access and applet event polling remain on the main thread. The UI does not inspect the changing document or resource tables until the worker finishes. Exceptions are passed back to the normal error dialog. Exit waits for any active operation, including a save, to complete.
 

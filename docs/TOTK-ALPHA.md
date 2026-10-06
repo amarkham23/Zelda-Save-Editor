@@ -1,4 +1,4 @@
-# TOTK support — 0.1.5-alpha.3
+# TOTK support — 0.1.5-alpha.4
 
 An experimental game module in Zelda Save Editor, by StockiestThree9. The app now offers Breath of the Wild and Tears of the Kingdom from the same game picker.
 
