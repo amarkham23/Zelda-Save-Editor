@@ -3,5 +3,8 @@
 *.hpp text eol=lf
 *.md text eol=lf
 Makefile text eol=lf
+VERSION text eol=lf
+*.inc text eol=lf
+.clang-format text eol=lf
 *.jpg binary
 *.png binary
