@@ -117,7 +117,7 @@ public:
     bool running=true,dirty=true,rebuild=true;
     std::string toast;
     uint64_t toastUntil=0;
-    App():canvas(platform),game(metadata),tears(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.5 TOTK alpha 1";stack.push_back(f);}
+    App():canvas(platform),game(metadata),tears(metadata){Frame f;f.title="Zelda Save Editor";f.subtitle="0.1.5 TOTK alpha 2";stack.push_back(f);}
     bool isTotk() const {return selectedGame==Game::Totk;}
     std::vector<Item> items() const {return isTotk()?tears.items(*save):game.items(*save);}
     std::string sectionName(ItemGroup group) const {return isTotk()&&group==ItemGroup::Unknown?"Zonai devices":groupName(group);}
@@ -199,9 +199,9 @@ public:
         }
         else if(view==View::Sections&&isTotk()){
             r.push_back({"Player","Hearts, stamina wheels, battery cells and rupees","",[this]{fieldList("Player",tears.stats(*save));current().expanded=true;}});
-            r.push_back({"Inventory","Durability, quantities, bonuses and dye colors","",[this]{push(View::Inventory,"Inventory",metadata.names.empty()?"Item IDs shown · Reload game resources in Settings":"L / R changes section");}});
+            r.push_back({"Inventory","Add, replace, duplicate and customize items","",[this]{push(View::Inventory,"Inventory",metadata.names.empty()?"Item IDs shown · Reload game resources in Settings":"L / R changes section");}});
             r.push_back({"Saved position","Link's saved coordinates","",[this]{fieldList("Saved position",tears.matching(*save,[](auto& f){return f.name=="PlayerStatus.SavePos";}),"Coordinates apply in the currently saved map");}});
-            r.push_back({"About TOTK support","Experimental · Existing items and player values","Details",[this]{message("TOTK alpha","This build edits existing items and player values. Item creation, fusion replacement, horses, quests and world-completion edits are still in development. Every write requires confirmation and a verified original backup.");}});
+            r.push_back({"About TOTK support","Experimental · Player and inventory editing","Details",[this]{message("TOTK alpha","Manage your ordinary inventory, equipment, meals and player values. Temporary challenge inventory is preserved. Key item creation, fusion replacement, horses, quests and world completion are still in development. Saving requires confirmation and a verified backup.");}});
         }else if(view==View::Choices){
             auto field=current().choice;for(auto option:field.choices)r.push_back({option.second,"",save->word(field.field.hash,field.index)==option.first?"Selected":"",[this,field,option]{setValue(*save,field,std::to_string(option.first));back();platform.cue(Cue::Confirm);}});
         }else if(view==View::Sections){
@@ -215,7 +215,7 @@ public:
             const char* themes[]={"Automatic","Light","Dark","OLED black"};std::string theme=themes[int(platform.settings.theme)];
             r.push_back({"Appearance",platform.settings.theme==Theme::Oled?"Pure black backgrounds for OLED screens":"Automatic follows your Switch theme",theme,[this]{platform.settings.theme=Theme((int(platform.settings.theme)+1)%4);platform.saveSettings();}});
             r.push_back({"Navigation sounds",platform.nativeSounds?"Loaded from this Switch's HOME menu":"System sounds are unavailable in this session",platform.settings.sound?"On":"Off",[this]{platform.settings.sound=!platform.settings.sound;platform.saveSettings();platform.cue(Cue::Confirm);}});
-            r.push_back({"About","Zelda Save Editor · 0.1.5 TOTK alpha 1","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
+            r.push_back({"About","Zelda Save Editor · 0.1.5 TOTK alpha 2","StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
             r.push_back({"Game resources",platform.resourceStatus,"Reload",[this]{busy("Reading game resources","Loading names and definitions from your installed game",[&]{metadata={};platform.loadMetadata(metadata,selectedGame);if(save&&isTotk())tears.definitions(*save);});notice(platform.resourceStatus);}});
         }else if(view==View::Fields){
             for(auto field:current().fields){if(!matches(field.label+" "+field.field.name))continue;size_t n=save->count(field.field.hash)/(field.field.kind==Kind::String?field.field.width:1);
@@ -230,16 +230,20 @@ public:
                 std::string valueLabel=equipment?std::to_string(value/100)+" durability":item.group==ItemGroup::Armor?(value?"Dyed":"Original color"):"× "+std::to_string(value);
                 r.push_back({metadata.itemName(item.id),save->word(hashName("PorchItem_EquipFlag"),item.index)?"Equipped":groupName(item.group),valueLabel,[this,item]{push(View::Item,metadata.itemName(item.id),groupName(item.group));current().item=item;}});
             }
-            if(!isTotk())r.push_back({"Add item","Choose from your game's item catalogue","+",[this]{auto group=current().group;push(View::Picker,"Add item",groupName(group));current().group=group;}});
+            if(!isTotk()||tears.canManage(current().group))r.push_back({"Add item","Choose from your game's item catalogue",isTotk()?std::to_string(tears.availableSlots(*save,current().group))+" free":"+",[this]{auto group=current().group;bool equipment=group==ItemGroup::Weapons||group==ItemGroup::Bows||group==ItemGroup::Shields;push(View::Picker,"Add item",isTotk()&&equipment?"New equipment starts at 1 durability · Adjust it after adding":sectionName(group));current().group=group;}});
+            if(isTotk()&&(current().group==ItemGroup::Materials||current().group==ItemGroup::Arrows||current().group==ItemGroup::Unknown))r.push_back({"Fill stacks","Set the quantity of every owned item in this section to 999","",[this]{auto group=current().group;confirm("Fill these stacks?","All owned "+sectionName(group)+" stacks in the ordinary pouch will be set to 999. This can be undone before saving.","Fill stacks",[this,group]{tears.fillStacks(*save,group);notice("Stacks filled");});}});
         }else if(view==View::Item){auto item=current().item;
             if(isTotk()&&tears.itemFields(*save,item).empty())r.push_back({"Owned item","No editable quantity is stored for this item","",[this]{message("Owned item","This item uses an ownership marker. Quantity editing is unavailable for it.");}});
-            if(!isTotk())r.push_back({"Replace item","Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",groupName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
+            if(!isTotk()||tears.canManage(item))r.push_back({"Replace item",isTotk()?"Keeps this item's values and fused material":"Choose a different item in this section","Choose",[this,item]{push(View::Picker,"Replace item",sectionName(item.group));current().group=item.group;current().item=item;current().replacement=true;}});
+            if(isTotk()&&(item.group==ItemGroup::Weapons||item.group==ItemGroup::Bows||item.group==ItemGroup::Shields||item.group==ItemGroup::Armor))r.push_back({"Equipped","Changes the ordinary pouch only",tears.equipped(*save,item)?"Yes":"No",[this,item]{tears.equipItem(*save,item);}});
             for(auto f:(isTotk()?tears.itemFields(*save,item):game.itemFields(*save,item))){
                 if(f.label=="Modifier flags")r.push_back({"Modifier","Choose an equipment bonus","Choose",[this,item]{push(View::Modifiers,"Equipment modifier");current().item=item;}});
                 else if(f.label=="Equipped")r.push_back({f.label,"",displayValue(*save,f),[this,item]{game.equipItem(*save,item);}});
                 else r.push_back({f.label,f.description,shown(f),[this,f]{editField(f);}});
             }
-            if(!isTotk())r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
+            if(isTotk()&&tears.canManage(item)&&tears.canDuplicate(item.group))r.push_back({"Duplicate item","Copies its values, fuse data and meal ingredients","",[this,item]{tears.duplicateItem(*save,item);notice("Item duplicated");}});
+            if(isTotk()&&tears.itemDetail(*save,item).rfind("Fused: ",0)==0)r.push_back({"Remove fused material","Keeps the base item and its current durability","",[this,item]{confirm("Remove fused material?","The attachment and its fuse bonus will be removed. The base item stays in your pouch.","Remove fuse",[this,item]{tears.clearFusion(*save,item);current().subtitle=tears.itemDetail(*save,item);notice("Fused material removed");});}});
+            if(!isTotk()||tears.canManage(item))r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{if(isTotk())tears.removeItem(*save,item);else game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
         }else if(view==View::Modifiers){
             auto item=current().item;EditField flags;for(auto f:game.itemFields(*save,item))if(f.label=="Modifier flags")flags=f;
             uint32_t currentValue=save->word(flags.field.hash,flags.index);
@@ -248,6 +252,17 @@ public:
                 r.push_back({option.second,"",(currentValue&0x7fffffff)==option.first?"Selected":"",[this,flags,option,currentValue]{uint32_t next=option.first?option.first|(currentValue&0x80000000u):0;setValue(*save,flags,std::to_string(next));notice("Modifier updated");}});
             }
             r.push_back({"Gold tier","Enhanced equipment bonus",currentValue&0x80000000u?"On":"Off",[this,flags,currentValue]{setValue(*save,flags,std::to_string(currentValue^0x80000000u));}});
+        }else if(view==View::Picker&&isTotk()){
+            for(auto id:tears.catalog(*save,current().group)){
+                if(!matches(id+" "+metadata.itemName(id)))continue;
+                if(current().replacement&&current().group==ItemGroup::Armor&&id.substr(id.rfind('_')+1)!=current().item.id.substr(current().item.id.rfind('_')+1))continue;
+                r.push_back({metadata.itemName(id),id,"",[this,id]{
+                    if(current().replacement){auto item=current().item;tears.replaceItem(*save,item,id);stack.pop_back();current().item.id=id;current().title=metadata.itemName(id);current().subtitle=tears.itemDetail(*save,current().item);}
+                    else{auto group=current().group;auto item=tears.addItem(*save,group,id);stack.pop_back();push(View::Item,metadata.itemName(id),tears.itemDetail(*save,item));current().item=item;}
+                    notice("Inventory updated");
+                }});
+            }
+            std::sort(r.begin(),r.end(),[](auto& a,auto& b){return a.title<b.title;});
         }else if(view==View::Picker){
             for(auto& pair:metadata.names){if(itemGroup(pair.first)!=current().group||!matches(pair.first+" "+pair.second))continue;
                 // A pickup flag or inventory timestamp verifies that this is an inventory actor.
@@ -369,7 +384,10 @@ public:
             c.text(entries.empty()?"":std::to_string(f.selected+1)+" / "+std::to_string(entries.size()),940,618,17,c.p.muted,270,true);
         }
         footer(bool(dialog));
-        if(!toast.empty()&&SDL_GetTicks64()<toastUntil&&!dialog){c.rect(290,561,700,60,c.p.panel);c.border(290,561,700,60,c.p.line,1);c.text(toast,316,576,24,c.p.text,650);}
+        if(!toast.empty()&&SDL_GetTicks64()<toastUntil&&!dialog){
+            if(save){c.rect(32,378,270,152,c.p.panel);c.border(32,378,270,152,c.p.line,1);c.wrapped(toast,48,393,238,20,c.p.text,4);}
+            else{c.rect(290,561,700,60,c.p.panel);c.border(290,561,700,60,c.p.line,1);c.text(toast,316,576,24,c.p.text,650);}
+        }
         if(dialog){auto d=*dialog;c.rect(0,0,1280,720,{0,0,0,145});c.rect(230,166,820,400,c.p.panel);c.text(d.title,274,199,32,c.p.text,730);c.wrapped(d.message,274,263,730,23,c.p.text,6);
             c.rect(230,483,820,1,c.p.line);if(d.confirm){c.rect(640,484,1,82,c.p.line);c.text("Cancel",276,507,25,c.p.text,320);c.text(d.accept,687,507,25,c.p.accent,319);c.border(d.selected?644:234,488,402,74,c.p.accent,3);}else{c.text("OK",622,507,25,c.p.accent,100);c.border(234,488,812,74,c.p.accent,3);}}
         c.present();dirty=false;
@@ -392,7 +410,16 @@ public:
             if(input.touchY>=124&&input.touchY<=183&&input.touchX>=56&&input.touchX<1224){changeSaveTab(std::min(tabCount()-1,(input.touchX-56)/(1168/tabCount())));return;}
         }
         if(input.down&Plus){if(save)tryAction([this]{review();});else running=false;return;}
-        if(save&&current().view!=View::Settings){if(input.down&ZL){auto label=save->undoLabel();if(save->undo())notice("Undid "+label);else notice("Nothing to undo");rebuild=true;return;}if(input.down&ZR){if(save->redo())notice("Edit restored");else notice("Nothing to redo");rebuild=true;return;}}
+        if(save&&current().view!=View::Settings){
+            auto historyChanged=[this]{
+                // Item insertion/removal can change the meaning of an ordinal.
+                // Discard child screens with captured field callbacks after undo.
+                if(isTotk())for(size_t i=0;i<stack.size();++i)if(stack[i].view==View::Inventory){stack.resize(i+1);break;}
+                rebuild=true;
+            };
+            if(input.down&ZL){auto label=save->undoLabel();if(save->undo()){notice("Undid "+label);historyChanged();}else notice("Nothing to undo");return;}
+            if(input.down&ZR){if(save->redo()){notice("Edit restored");historyChanged();}else notice("Nothing to redo");return;}
+        }
         if(input.down&Y&&(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)){tryAction([this]{search();});return;}
         if(current().view==View::Inventory&&(input.down&(L|R))){int direction=(input.down&R)?1:-1;current().group=ItemGroup((int(current().group)+direction+9)%9);current().selected=0;current().scroll=0;platform.cue(Cue::Focus);dirty=true;rebuild=true;return;}
         auto& f=current();int movement=0;int cols=f.view==View::Profiles?4:1;
@@ -421,9 +448,25 @@ public:
             ensure(!slots.empty(),"TOTK fixture is missing");screenshot("preview/totk-saves.png");handle(Input{A},rows());ensure(save&&save->game()==Game::Totk,"Wrong game save opened");auto before=save->bytes();
             screenshot("preview/totk-sections.png");handle(Input{A},rows());ensure(current().view==View::Fields,"Player page missing");screenshot("preview/totk-player.png");
             for(int i=0;i<30;++i){handle(Input{Down},rows());handle(Input{Up},rows());}back();current().selected=1;handle(Input{A},rows());screenshot("preview/totk-inventory.png");
-            for(int i=0;i<9;++i){for(auto& row:rows())ensure(row.title!="Add item","TOTK exposes BOTW insertion");handle(Input{R},rows());}
+            for(int i=0;i<9;++i){bool add=false;for(auto& row:rows())add|=row.title=="Add item";ensure(add==(current().group!=ItemGroup::KeyItems),"Wrong TOTK item management availability");handle(Input{R},rows());}
             handle(Input{A},rows());ensure(current().view==View::Item,"Item page missing");screenshot("preview/totk-detail.png");auto detail=rows();for(auto& row:detail)if(row.title=="Equipment bonus"){row.action();break;}
             ensure(current().view==View::Choices,"Bonus picker missing");screenshot("preview/totk-bonus.png");for(int i=0;i<10;++i)handle(Input{Down},rows());back();ensure(save->bytes()==before,"TOTK navigation edited data");
+            back();ensure(current().view==View::Inventory,"Inventory return failed");
+            // Exercise real UI callbacks using this in-memory fixture only.
+            Item lastWeapon;for(auto item:items())if(item.group==ItemGroup::Weapons)lastWeapon=item;
+            tears.removeItem(*save,lastWeapon);auto freeSlot=save->bytes();
+            for(auto row:rows())if(row.title=="Add item"){row.action();break;}
+            ensure(current().view==View::Picker&&!rows().empty(),"TOTK catalogue missing");screenshot("preview/totk-catalogue.png");
+            auto add=rows().front().action;add();ensure(current().view==View::Item,"New item does not open for customization");screenshot("preview/totk-new-item.png");
+            handle(Input{ZL},rows());ensure(current().view==View::Inventory&&save->bytes()==freeSlot,"Undo retained stale item callbacks");
+            handle(Input{ZL},rows());ensure(save->bytes()==before,"UI undo failed to restore fixture");
+            current().group=ItemGroup::Food;current().selected=0;handle(Input{A},rows());screenshot("preview/totk-meal.png");
+            for(auto row:rows())if(row.title=="Meal effect"){row.action();break;}
+            ensure(current().view==View::Choices,"Meal effect picker missing");screenshot("preview/totk-meal-effects.png");back();back();
+            current().group=ItemGroup::Materials;current().selected=int(rows().size())-1;current().scroll=std::max(0,current().selected-5);screenshot("preview/totk-fill-stacks.png");
+            ensure(save->bytes()==before,"Browsing new screens edited data");
+            // Restore the item-level depth expected by the shared Back-path check.
+            current().group=ItemGroup::Weapons;current().selected=0;current().scroll=0;handle(Input{A},rows());
             back();back();back();back();ensure(current().view==View::Games,"TOTK back path incorrect");selectGame(Game::Botw);ensure(!isTotk()&&tabCount()>=3,"BOTW selection was contaminated by TOTK");
             std::cout<<"PASS: TOTK selection, isolated tabs, player and inventory browsing, enum picker, read-only navigation, return to BOTW; preview images saved\n";return 0;
         }

@@ -13,7 +13,7 @@ static bool starts(const std::string& s,const std::string& prefix){return s.comp
 static bool floating(Kind kind){return kind==Kind::Float||kind==Kind::Vec2||kind==Kind::Vec3||kind==Kind::Vec4;}
 std::string readable(const std::string& name){std::string out;char prev=0;for(char ch:name){if(ch=='_'){out+=' ';prev=0;continue;}if(std::isupper(static_cast<unsigned char>(ch))&&(std::islower(static_cast<unsigned char>(prev))||std::isdigit(static_cast<unsigned char>(prev))))out+=' ';out+=ch;prev=ch;}return out;}
 std::string displayValue(const Save& s,const EditField& e){
-    if(!e.choices.empty()){auto value=s.word(e.field.hash,e.index);for(auto& choice:e.choices)if(choice.first==value)return choice.second;return "Unrecognized bonus";}
+    if(!e.choices.empty()){auto value=s.word(e.field.hash,e.index);for(auto& choice:e.choices)if(choice.first==value)return choice.second;return "Unrecognized value";}
     auto k=e.field.kind;
     if(k==Kind::String)return s.string(e.field.hash,e.field.width*4,e.index);
     if(k==Kind::Bool)return s.word(e.field.hash,e.index)?"On":"Off";
@@ -37,6 +37,10 @@ void setValue(Save& s,const EditField& e,const std::string& text){
     if(value<e.minimum||value>e.maximum)throw Error("Value must be between "+std::to_string(int64_t(e.minimum))+" and "+std::to_string(int64_t(e.maximum))+".");
     value*=e.scale;
     if(e.field.name=="PlayerStatus.Life"&&s.count("PlayerStatus.MaxLife")&&value>s.integer(s.fieldHash("PlayerStatus.MaxLife")))throw Error("Current hearts cannot exceed maximum hearts.");
+    if(s.game()==Game::Totk&&e.field.name.rfind("Pouch.",0)==0&&e.field.name.find(".ValidNum")!=std::string::npos){
+        auto key=e.field.name.substr(0,e.field.name.size()-8)+"Content.Name";auto h=s.fieldHash(key);
+        for(size_t i=size_t(value);i<s.count(h)/32;++i)if(!s.string(h,64,i).empty())throw Error("Remove items from the extra slots before reducing this pouch's capacity.");
+    }
     bool isFloat=floating(e.field.kind);
     if(!isFloat&&(value!=std::floor(value)||value<(e.field.kind==Kind::UInt?0.0:-2147483648.0)||value>(e.field.kind==Kind::UInt?4294967295.0:2147483647.0)))throw Error("That value does not fit this field.");
     s.edit(e.label,[&]{

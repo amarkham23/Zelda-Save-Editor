@@ -17,14 +17,30 @@ static Bytes caption(){
  for(unsigned i=0;i<5;++i){put(b,56+i*8,hashes[i]);put(b,60+i*8,values[i]);}
  put(b,100,18);put(b,104,0x63696a32);put(b,108,112);put(b,112,4);b[116]=0xff;b[117]=0xd8;b[118]=0xff;b[119]=0xd9;return b;
 }
+#include "totk_inventory.hpp"
+static void testNames(){
+ // A tiny original MSBT inside a TOTK-style ActorMsg archive. No game text.
+ const std::string label="Weapon_Sword_003_Name",shown="Example weapon";
+ Bytes table(32);std::copy_n("MsgStdBn",8,table.begin());table[8]=0xff;table[9]=0xfe;table[14]=2;
+ auto section=[&](const char* magic,const Bytes& payload){auto at=table.size();table.resize(at+16+payload.size());std::copy_n(magic,4,table.begin()+at);put(table,at+4,uint32_t(payload.size()));std::copy(payload.begin(),payload.end(),table.begin()+at+16);table.resize((table.size()+15)&~size_t(15));};
+ Bytes labels(13+label.size()+4);put(labels,0,1);put(labels,4,1);put(labels,8,12);labels[12]=uint8_t(label.size());std::copy(label.begin(),label.end(),labels.begin()+13);section("LBL1",labels);
+ Bytes text(8+shown.size()+1);put(text,0,1);put(text,4,8);std::copy(shown.begin(),shown.end(),text.begin()+8);section("TXT2",text);
+ Bytes archive(96+table.size());std::copy_n("SARC",4,archive.begin());archive[4]=20;archive[6]=0xff;archive[7]=0xfe;put(archive,8,uint32_t(archive.size()));put(archive,12,96);
+ std::copy_n("SFAT",4,archive.begin()+20);archive[24]=12;archive[26]=1;put(archive,36,0x01000000);put(archive,44,uint32_t(table.size()));std::copy_n("SFNT",4,archive.begin()+48);archive[52]=8;
+ const std::string path="ActorMsg/Weapon.msbt";std::copy(path.begin(),path.end(),archive.begin()+56);std::copy(table.begin(),table.end(),archive.begin()+96);
+ std::filesystem::create_directories("build/totk-resource-test/cache/totk");writeFile("build/totk-resource-test/cache/totk/messages.sarc",archive);
+ Metadata data;loadTotkNames(data,"build/totk-resource-test",[](auto&){});require(data.names.size()==1&&data.itemName("Weapon_Sword_003")==shown,"TOTK ActorMsg item names were not loaded");
+}
 int main(int argc,char** argv){try{
  if(argc!=2)throw Error("Pass the path to a local TOTK progress.sav fixture. It is never distributed.");
  auto original=readFile(argv[1]);Save save(original);require(save.game()==Game::Totk,"Wrong game detected");require(save.bytes()==original&&!save.dirty(),"Opening changed save bytes");
+ testInventory(original);
+ testNames();
  Metadata metadata;Totk model(metadata);model.definitions(save);auto stats=model.stats(save);auto get=[&](const char* name){auto it=std::find_if(stats.begin(),stats.end(),[&](auto& f){return f.field.name==name;});if(it==stats.end())throw Error(std::string("Missing stat: ")+name);return *it;};
  for(auto& field:stats)std::cout<<field.label<<": "<<displayValue(save,field)<<" "<<field.unit<<"\n";
  require(displayValue(save,get("PlayerStatus.CurrentRupee"))=="9142","Wrong fixture rupees");require(displayValue(save,get("PlayerStatus.MaxLife"))=="37","Hearts scaling failed");require(displayValue(save,get("PlayerStatus.MaxStamina"))=="2.2","Stamina scaling failed");require(displayValue(save,get("PlayerStatus.MaxEnergy"))=="39","Battery scaling failed");
  std::set<size_t> allowed;auto edit=[&](const EditField& f,const std::string& value){auto offset=save.fields().at(f.field.hash).at(f.index);for(unsigned i=0;i<4;++i)allowed.insert(offset+i);
- if(f.field.name.find(".Content.Effect.Type")!=std::string::npos){auto h=save.fieldHash(f.field.name.substr(0,f.field.name.size()-4)+"Value");auto offset=save.fields().at(h).at(f.index);for(unsigned i=0;i<4;++i)allowed.insert(offset+i);}
+ if(f.field.name.find(".Content.Effect.Type")!=std::string::npos){auto h=save.fieldHash(f.field.name.substr(0,f.field.name.size()-4)+"Value");if(save.count(h)>f.index){auto offset=save.fields().at(h).at(f.index);for(unsigned i=0;i<4;++i)allowed.insert(offset+i);}}
  setValue(save,f,value);};
  edit(get("PlayerStatus.CurrentRupee"),"12345");edit(get("PlayerStatus.MaxEnergy"),"48");edit(get("PlayerStatus.MaxStamina"),"3");
  auto all=model.items(save);require(!all.empty(),"No inventory parsed");size_t editedItems=0;

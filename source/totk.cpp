@@ -14,6 +14,7 @@ void options(EditField& field,std::initializer_list<const char*> values){
 }
 void Totk::definitions(const Save& s){
  metadata.fields.clear();
+ originalItems.clear();for(auto& item:items(Save(s.original())))originalItems.emplace(item.id,item.group);
  auto add=[&](const std::string& name){auto h=totk::hash(name);auto it=s.types().find(h);if(it==s.types().end()||!s.count(h))return;
   auto t=it->second;Field f{name,h,Kind::Unknown,1,bool(t&1)};
   switch(t&~1U){case 0:f.kind=Kind::Bool;break;case 2:f.kind=Kind::Int;break;case 4:f.kind=Kind::Float;break;case 6:case 20:f.kind=Kind::UInt;break;case 8:f.kind=Kind::Vec2;f.width=2;break;case 10:f.kind=Kind::Vec3;f.width=3;break;case 12:case 14:case 16:f.kind=Kind::String;f.width=(t&~1U)==12?4:(t&~1U)==14?8:16;break;default:return;}
@@ -35,6 +36,10 @@ EditField Totk::field(const std::string& name,const std::string& label,size_t in
  if(name=="Pouch.Weapon.Content.Effect.Type")options(f,{"None","AttackUp","AttackUpPlus","DurabilityUp","DurabilityUpPlus","FinishBlow","LongThrow"});
  if(name=="Pouch.Bow.Content.Effect.Type")options(f,{"None","AttackUp","AttackUpPlus","DurabilityUp","DurabilityUpPlus","RapidFire","FiveWay"});
  if(name=="Pouch.Shield.Content.Effect.Type")options(f,{"None","DurabilityUp","DurabilityUpPlus","GuardUp","GuardUpPlus"});
+ if(name=="Pouch.Food.Content.Effect.Type"){
+  const std::pair<const char*,const char*> meals[]={{"None","None"},{"LifeMaxUp","Extra hearts"},{"StaminaRecover","Restore stamina"},{"ExStaminaMaxUp","Extra stamina"},{"LifeRepair","Repair gloom damage"},{"ResistHot","Heat resistance"},{"ResistCold","Cold resistance"},{"ResistElectric","Shock resistance"},{"ResistBurn","Flame resistance"},{"AttackUp","Attack up"},{"DefenseUp","Defense up"},{"AllSpeed","Movement speed up"},{"QuietnessUp","Stealth up"},{"MiasmaGuard","Gloom resistance"},{"NotSlippy","Slip resistance"},{"LightEmission","Glow"}};
+  for(auto& effect:meals)f.choices.push_back({totk::hash(effect.first),effect.second});
+ }
  return f;
 }
 std::vector<EditField> Totk::stats(const Save& s) const{
@@ -45,7 +50,7 @@ std::vector<EditField> Totk::stats(const Save& s) const{
   {"PlayerStatus.Life","Current hearts","hearts",4,0,40,false},
   {"PlayerStatus.MaxStamina","Maximum stamina wheels","wheels",1000,1,3,false},
   {"PlayerStatus.MaxEnergy","Battery cells","cells",1000,3,48,true},
-  {"Pouch.Weapon.ValidNum","Weapon slots","",1,9,20,true},
+  {"Pouch.Weapon.ValidNum","Weapon slots","",1,8,20,true},
   {"Pouch.Bow.ValidNum","Bow slots","",1,5,14,true},
   {"Pouch.Shield.ValidNum","Shield slots","",1,4,20,true},
   {"HorseInnMemberPoint","Pony Points","points",1,0,999999,true}
@@ -53,7 +58,7 @@ std::vector<EditField> Totk::stats(const Save& s) const{
  std::vector<EditField> result;for(auto& d:defs)if(s.count(d.key)){auto f=field(d.key,d.label);f.unit=d.unit;f.scale=d.scale;f.minimum=d.min;f.maximum=d.max;f.whole=d.whole;if(std::string(d.key)=="PlayerStatus.MaxEnergy")f.description="3 cells per battery · 48 cells fills both rows";result.push_back(f);}return result;
 }
 std::vector<Item> Totk::items(const Save& s) const{
- std::vector<Item> result;for(unsigned group=0;group<9;++group){auto key=prefix(ItemGroup(group))+"Name";auto h=totk::hash(key);for(size_t i=0;i<s.count(h)/16;++i){auto name=s.string(h,64,i);if(!name.empty())result.push_back({name,group*4096+i,i,ItemGroup(group)});}}return result;
+ std::vector<Item> result;for(unsigned group=0;group<9;++group){auto key=prefix(ItemGroup(group))+"Name";auto h=totk::hash(key);if(!s.count(h))continue;for(size_t i=0;i<capacity(s,ItemGroup(group));++i){auto name=s.string(h,64,i);if(!name.empty())result.push_back({name,group*4096+i,i,ItemGroup(group)});}}return result;
 }
 std::vector<EditField> Totk::itemFields(const Save& s,const Item& item) const{
  std::vector<EditField> result;auto p=prefix(item.group);
@@ -65,7 +70,7 @@ std::vector<EditField> Totk::itemFields(const Save& s,const Item& item) const{
   if(fused){add("Combined.Life","Fused item durability","durability");add("ExtraLife","Remaining fuse bonus","durability");}
  }else if(item.group==ItemGroup::Armor)add("ColorVariation","Dye color");
  else {if(s.count(p+"StockNum")>item.ordinal&&s.integer(totk::hash(p+"StockNum"),item.ordinal)>=0)add("StockNum","Quantity");if(!result.empty())result.front().maximum=999;
-  if(item.group==ItemGroup::Food){auto before=result.size();add("LifeRecover","Hearts restored","hearts",4);if(result.size()>before)result.back().whole=false;add("Effect.Level","Effect strength");add("Effect.Time","Effect duration","seconds");add("Price","Sell value","rupees");}
+  if(item.group==ItemGroup::Food){auto before=result.size();add("LifeRecover","Hearts restored","hearts",4);if(result.size()>before)result.back().whole=false;add("Effect.Type","Meal effect");add("Effect.Level","Effect strength");add("Effect.Time","Effect duration","seconds");add("Price","Sell value","rupees");}
  }
  return result;
 }

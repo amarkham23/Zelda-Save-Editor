@@ -6,7 +6,7 @@
 
 A native Nintendo Switch save editor. The first game module supports **The Legend of Zelda: Breath of the Wild**.
 
-This development branch adds **experimental Tears of the Kingdom support** in 0.1.5-alpha.1: player values, existing inventory and saved coordinates. See [TOTK features, setup and testing limits](docs/TOTK-ALPHA.md). The public beta linked below remains the BOTW release.
+This development branch adds **experimental Tears of the Kingdom support** in 0.1.5-alpha.2: player values, item management, equipment, meals and saved coordinates. See [TOTK features, setup and testing limits](docs/TOTK-ALPHA.md). The public beta linked below remains the BOTW release.
 
 **[Download v0.1.4-beta.1](https://github.com/amarkham23/Zelda-Save-Editor/releases/tag/v0.1.4-beta.1)** · [Report a bug](https://github.com/amarkham23/Zelda-Save-Editor/issues) · [Changes](docs/CHANGES.md)
 

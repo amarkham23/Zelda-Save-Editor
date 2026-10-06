@@ -22,7 +22,7 @@ namespace {
 void namesFromArchive(Metadata& data,const Bytes& bytes){
  for(auto& table:unpackSarc(bytes)){
   if(table.first.size()<5||table.first.substr(table.first.size()-5)!=".msbt")continue;
-  if(table.first.find("ActorType/")==0){for(auto& pair:readMsbt(table.second))if(pair.first.size()>5&&pair.first.substr(pair.first.size()-5)=="_Name")data.names.emplace(pair.first.substr(0,pair.first.size()-5),pair.second);}
+  if(table.first.find("ActorMsg/")==0||table.first.find("ActorType/")==0){for(auto& pair:readMsbt(table.second))if(pair.first.size()>5&&pair.first.substr(pair.first.size()-5)=="_Name")data.names.emplace(pair.first.substr(0,pair.first.size()-5),pair.second);}
   if(table.first=="LocationMsg/Location.msbt"||table.first=="StaticMsg/LocationMarker.msbt")data.locations=readMsbt(table.second);
  }
 }

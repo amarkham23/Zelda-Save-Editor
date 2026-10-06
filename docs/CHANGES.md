@@ -1,5 +1,13 @@
 # Changes
 
+## 0.1.5 alpha 2 (development branch)
+
+- TOTK inventory add/replace/duplicate/remove, equip toggles, fuse removal, stack filling and meal-effect choices.
+- Preserve temporary challenge inventory and all meal/fuse companions, repair equipped references, check pouch limits and prevent stale item callbacks after undo.
+- Fix TOTK item names by reading ActorMsg message tables. Catalogues use installed game resources and verified field identifiers; no external item table is bundled.
+- Open new items directly for customization and move edit notices into the sidebar so they no longer obscure the last menu row.
+- Expand fixture tests and UI walkthroughs. This development build still requires edited-save gameplay acceptance.
+
 ## 0.1.4 beta 1
 
 First public beta under the MIT license, credited to StockiestThree9. Includes the normal-only swap behavior and compact interface from 0.1.4 preview, installation-ready SD ZIP, full source package with libpulsar, dependency notices and SHA-256 checksums. Gameplay after swaps and wider device save-and-reload testing remain beta validation work.
