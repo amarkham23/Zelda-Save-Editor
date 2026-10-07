@@ -19,6 +19,7 @@ static Bytes caption(){
 }
 #include "totk_inventory.hpp"
 #include "totk_variants.hpp"
+#include "totk_features.hpp"
 static void testNames(){
  // A tiny original MSBT inside a TOTK-style ActorMsg archive. No game text.
  const std::string label="Weapon_Sword_003_Name",shown="Example weapon";
@@ -38,7 +39,7 @@ int main(int argc,char** argv){try{
  testInventory(original);
  testNames();
  testVariantLinks();
- if(argc==3)testInstalledVariants(original,argv[2]);
+ if(argc==3){testInstalledVariants(original,argv[2]);testFeatures(original,argv[2]);}
  Metadata metadata;Totk model(metadata);model.definitions(save);auto stats=model.stats(save);auto get=[&](const char* name){auto it=std::find_if(stats.begin(),stats.end(),[&](auto& f){return f.field.name==name;});if(it==stats.end())throw Error(std::string("Missing stat: ")+name);return *it;};
  for(auto& field:stats)std::cout<<field.label<<": "<<displayValue(save,field)<<" "<<field.unit<<"\n";
  require(displayValue(save,get("PlayerStatus.CurrentRupee"))=="9142","Wrong fixture rupees");require(displayValue(save,get("PlayerStatus.MaxLife"))=="37","Hearts scaling failed");require(displayValue(save,get("PlayerStatus.MaxStamina"))=="2.2","Stamina scaling failed");require(displayValue(save,get("PlayerStatus.MaxEnergy"))=="39","Battery scaling failed");

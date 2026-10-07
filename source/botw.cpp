@@ -45,8 +45,10 @@ std::string displayValue(const Save &s, const EditField &e) {
   auto k = e.field.kind;
   if (k == Kind::String)
     return s.string(e.field.hash, e.field.width * 4, e.index);
+  if (k == Kind::WideString)
+    return s.wideString(e.field.hash, e.index);
   if (k == Kind::Bool)
-    return s.word(e.field.hash, e.index) ? "On" : "Off";
+    return (s.game() == Game::Totk ? s.boolean(e.field.hash, e.index) : s.word(e.field.hash, e.index) != 0) ? "On" : "Off";
   double value = floating(k)       ? double(s.real(e.field.hash, e.index))
                  : k == Kind::UInt ? double(s.word(e.field.hash, e.index))
                                    : double(s.integer(e.field.hash, e.index));
@@ -84,9 +86,14 @@ void setValue(Save &s, const EditField &e, const std::string &text) {
            [&] { s.string(e.field.hash, e.field.width * 4, e.index, text); });
     return;
   }
+  if (e.field.kind == Kind::WideString) {
+    s.edit(e.label, [&] { s.wideString(e.field.hash, e.index, text); });
+    return;
+  }
   if (e.field.kind == Kind::Bool) {
+    if (text != "0" && text != "1") throw Error("Choose On or Off.");
     s.edit(e.label,
-           [&] { s.word(e.field.hash, e.index, text == "1" ? 1 : 0); });
+           [&] { if (s.game() == Game::Totk) s.boolean(e.field.hash, e.index, text == "1"); else s.word(e.field.hash, e.index, text == "1" ? 1 : 0); });
     return;
   }
   size_t end = 0;

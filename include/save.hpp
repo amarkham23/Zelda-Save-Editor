@@ -48,6 +48,13 @@ public:
   void real(uint32_t hash, size_t index, float value);
   void string(uint32_t hash, size_t width, size_t index,
               const std::string &value);
+  size_t logicalCount(uint32_t hash) const;
+  bool boolean(uint32_t hash, size_t index = 0) const;
+  void boolean(uint32_t hash, size_t index, bool value);
+  std::string wideString(uint32_t hash, size_t index = 0) const;
+  void wideString(uint32_t hash, size_t index, const std::string &value);
+  Bytes binary(uint32_t hash, size_t index = 0) const;
+  void binary(uint32_t hash, size_t index, const Bytes &value);
   void edit(const std::string &label, const std::function<void()> &action);
   bool undo();
   bool redo();
@@ -75,6 +82,8 @@ private:
   std::map<uint32_t, uint32_t> types_;
   std::vector<size_t> editableOffsets_;
   std::map<uint32_t, std::vector<size_t>> fields_;
+  struct Indirect { uint32_t type; size_t offset, count, width, extent; };
+  std::map<uint32_t, Indirect> indirect_;
   std::vector<Edit> edits_;
   size_t cursor_ = 0;
   size_t changedWords_ = 0;

@@ -35,7 +35,7 @@ test:
 host: | build
 	g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DSDL_MAIN_HANDLED -Iinclude $$(pkg-config --cflags sdl2 SDL2_ttf SDL2_image) -Umain $(VERSION_DEFINE) $(SOURCES) -lSDL2_ttf -lSDL2_image -lSDL2 -lzstd -o build/zelda-editor-preview.exe
 test-storage: | build
-	g++ -std=c++17 -O2 -DSDL_MAIN_HANDLED -Iinclude $$(pkg-config --cflags sdl2 SDL2_ttf SDL2_image) -Umain source/save.cpp source/totk_format.cpp source/resources.cpp source/profile_swap.cpp source/platform.cpp source/totk.cpp source/totk_inventory.cpp source/totk_variants.cpp source/totk_resources.cpp source/botw.cpp tests/test_storage.cpp -lSDL2_ttf -lSDL2_image -lSDL2 -lzstd -o build/test_storage.exe
+	g++ -std=c++17 -O2 -DSDL_MAIN_HANDLED -Iinclude $$(pkg-config --cflags sdl2 SDL2_ttf SDL2_image) -Umain source/save.cpp source/totk_format.cpp source/resources.cpp source/profile_swap.cpp source/platform.cpp source/totk.cpp source/totk_inventory.cpp source/totk_variants.cpp source/totk_resources.cpp source/totk_schema.cpp source/totk_features.cpp source/totk_world.cpp source/botw.cpp tests/test_storage.cpp -lSDL2_ttf -lSDL2_image -lSDL2 -lzstd -o build/test_storage.exe
 	mkdir -p build/storage-test
 	cd build/storage-test && ../test_storage.exe
 test-swap: | build
@@ -45,5 +45,5 @@ test-swap: | build
 -include $(OBJECTS:.o=.d)
 
 test-totk: | build
-	g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DSDL_MAIN_HANDLED -Iinclude $$(pkg-config --cflags sdl2 SDL2_ttf SDL2_image) -Umain source/save.cpp source/totk_format.cpp source/resources.cpp source/botw.cpp source/totk.cpp source/totk_inventory.cpp source/totk_variants.cpp source/totk_resources.cpp source/platform.cpp source/profile_swap.cpp tests/test_totk.cpp -lSDL2_ttf -lSDL2_image -lSDL2 -lzstd -o build/test_totk.exe
+	g++ -std=c++17 -O2 -Wall -Wextra -Wno-misleading-indentation -DSDL_MAIN_HANDLED -Iinclude $$(pkg-config --cflags sdl2 SDL2_ttf SDL2_image) -Umain source/save.cpp source/totk_format.cpp source/resources.cpp source/botw.cpp source/totk.cpp source/totk_inventory.cpp source/totk_variants.cpp source/totk_resources.cpp source/totk_schema.cpp source/totk_features.cpp source/totk_world.cpp source/platform.cpp source/profile_swap.cpp tests/test_totk.cpp -lSDL2_ttf -lSDL2_image -lSDL2 -lzstd -o build/test_totk.exe
 	./build/test_totk.exe $(FIXTURE) $(CATALOG)

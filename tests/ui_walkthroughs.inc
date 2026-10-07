@@ -8,7 +8,7 @@
             ensure(!slots.empty(),"TOTK fixture is missing");screenshot("preview/totk-saves.png");handle(Input{A},rows());ensure(save&&save->game()==Game::Totk,"Wrong game save opened");auto before=save->bytes();
             screenshot("preview/totk-sections.png");handle(Input{A},rows());ensure(current().view==View::Fields,"Player page missing");screenshot("preview/totk-player.png");
             for(int i=0;i<30;++i){handle(Input{Down},rows());handle(Input{Up},rows());}back();current().selected=1;handle(Input{A},rows());screenshot("preview/totk-inventory.png");
-            for(int i=0;i<9;++i){bool add=false;for(auto& row:rows())add|=row.title=="Add item";ensure(add==(current().group!=ItemGroup::KeyItems),"Wrong TOTK item management availability");handle(Input{R},rows());}
+            for(int i=0;i<9;++i){bool add=false;for(auto& row:rows())add|=row.title=="Add item";ensure(add,"Wrong TOTK item management availability");handle(Input{R},rows());}
             handle(Input{A},rows());ensure(current().view==View::Item,"Item page missing");screenshot("preview/totk-detail.png");auto detail=rows();for(auto& row:detail)if(row.title=="Equipment bonus"){row.action();break;}
             ensure(current().view==View::Choices,"Bonus picker missing");screenshot("preview/totk-bonus.png");for(int i=0;i<10;++i)handle(Input{Down},rows());back();ensure(save->bytes()==before,"TOTK navigation edited data");
             back();ensure(current().view==View::Inventory,"Inventory return failed");
@@ -52,6 +52,21 @@
                 bool life=false;for(auto row:rows())if(row.title=="Starting durability")life=row.value=="16";ensure(life,"Wrong durability shown for decayed sword");
                 screenshot("preview/totk-weapon-options.png");choose("Condition");choose("Pristine");ensure(current().candidate=="Weapon_Sword_001","Wrong pristine sword");
                 back();back();ensure(save->bytes()==before,"Weapon option browsing edited data");
+            }
+            {
+                auto choose=[&](const std::string& title){for(auto row:rows())if(row.title==title){row.action();return;}throw Error("New TOTK UI row missing: "+title);};
+                back();ensure(current().view==View::Sections,"New feature entry point is not at the save menu");
+                ensure(rows().size()==6,"Save menu became cluttered");
+                choose("World & completion");screenshot("preview/totk-world.png");
+                choose("Koroks");ensure(current().view==View::WorldCategory&&rows().size()>=900,"Korok progress list missing");screenshot("preview/totk-koroks.png");
+                auto depth=stack.size();for(int i=0;i<40;++i){back();choose("Koroks");ensure(stack.size()==depth,"Repeated browsing grew the menu stack");}
+                back();choose("Quests");ensure(rows().size()>100,"Quest menu is empty");screenshot("preview/totk-quests.png");rows().front().action();screenshot("preview/totk-quest-detail.png");back();back();
+                choose("Compendium");ensure(rows().size()>300,"Compendium menu is empty");screenshot("preview/totk-compendium.png");back();
+                choose("Map stamps");screenshot("preview/totk-stamps.png");rows()[1].action();screenshot("preview/totk-stamp-detail.png");back();back();back();
+                choose("Horses");ensure(!rows().empty(),"Registered horses are missing");screenshot("preview/totk-horses.png");rows().front().action();ensure(rows().size()>=6,"Horse detail fields missing");screenshot("preview/totk-horse-detail.png");back();back();
+                choose("Autobuild");ensure(rows().size()==30,"Autobuild slots missing");screenshot("preview/totk-autobuild.png");rows().front().action();screenshot("preview/totk-blueprint.png");choose("Import blueprint");screenshot("preview/totk-blueprint-import.png");back();back();back();
+                choose("Inventory");current().group=ItemGroup::Weapons;current().selected=0;current().scroll=0;rows().front().action();choose("Fused attachment");ensure(rows().size()>100,"Fusion picker is empty");screenshot("preview/totk-fusion.png");back();back();
+                ensure(save->bytes()==before,"Browsing the expanded menus changed save bytes");
             }
             // Restore the item-level depth expected by the shared Back-path check.
             current().group=ItemGroup::Weapons;current().selected=0;current().scroll=0;handle(Input{A},rows());

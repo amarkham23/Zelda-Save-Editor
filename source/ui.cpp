@@ -88,7 +88,7 @@ public:
     void present(){if(!capturePath.empty()){shot(capturePath);capturePath.clear();}SDL_RenderPresent(renderer);}
     void shot(const std::string& path){auto s=SDL_CreateRGBSurfaceWithFormat(0,1280,720,32,SDL_PIXELFORMAT_RGBA32);SDL_RenderReadPixels(renderer,nullptr,s->format->format,s->pixels,s->pitch);IMG_SavePNG(s,path.c_str());SDL_FreeSurface(s);}
 };
-enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap,Choices,ConfigureItem,VariantChoices };
+enum class View { Games,Profiles,Slots,Sections,Inventory,Item,Picker,Horses,Fields,Settings,Completion,Modifiers,Swap,Choices,ConfigureItem,VariantChoices,FusionPicker,Autobuild,Blueprint,BlueprintImports,StampList,TotkWorld,WorldCategory,Quests,Abilities };
 enum class SaveTab {Normal,Profile2,Master,Other};
 struct Frame {
     View view=View::Games;
@@ -99,7 +99,8 @@ struct Frame {
     Item item;
     EditField choice;
     bool expanded=false,replacement=false;
-    std::string candidate;
+    std::string candidate,worldCategory;
+    size_t record=0;
     VariantProperty variantProperty=VariantProperty::Stars;
     bool pendingVariant=false;
     int catalogFilter=0;
@@ -183,11 +184,14 @@ public:
     void fieldList(const std::string& title,std::vector<EditField> fields,const std::string& subtitle=""){push(View::Fields,title,subtitle);current().fields=std::move(fields);}
     void editField(EditField field){
         if(!field.choices.empty()){push(View::Choices,field.label,"Choose an option");current().choice=field;for(size_t i=0;i<field.choices.size();++i)if(field.choices[i].first==save->word(field.field.hash,field.index))current().selected=int(i);current().scroll=std::max(0,current().selected-5);return;}
-        if(field.field.kind==Kind::Bool){setValue(*save,field,save->word(field.field.hash,field.index)?"0":"1");platform.cue(Cue::Confirm);return;}
-        bool text=field.field.kind==Kind::String;auto result=platform.keyboard(field.label,displayValue(*save,field),text?field.field.width*4-1:24,!text,!field.whole);
+        if(field.field.kind==Kind::Bool){setValue(*save,field,(isTotk()?save->boolean(field.field.hash,field.index):save->word(field.field.hash,field.index)!=0)?"0":"1");platform.cue(Cue::Confirm);return;}
+        bool text=field.field.kind==Kind::String||field.field.kind==Kind::WideString;auto result=platform.keyboard(field.label,displayValue(*save,field),text?(field.field.kind==Kind::WideString?field.field.width*2-1:field.field.width*4-1):24,!text,!field.whole);
         if(result){setValue(*save,field,*result);platform.cue(Cue::Confirm);}
     }
-    void chooseField(EditField f){size_t n=save->count(f.field.hash)/(f.field.kind==Kind::String?f.field.width:1);
+    size_t fieldCount(const Field& f) const {if(isTotk()&&f.kind==Kind::Bool)return save->logicalCount(f.hash);return save->count(f.hash)/((f.kind==Kind::String||f.kind==Kind::WideString)?f.width:1);}
+    bool searchable() const {auto view=stack.back().view;return view==View::Fields||view==View::Inventory||view==View::Picker||view==View::FusionPicker||view==View::Quests||view==View::WorldCategory||view==View::StampList;}
+    bool worldDone(const EditField& f) const {if(f.field.kind==Kind::Bool)return save->boolean(f.field.hash,f.index);auto value=save->word(f.field.hash,f.index);return value==totk::hash("Clear")||value==totk::hash("Open");}
+    void chooseField(EditField f){size_t n=fieldCount(f.field);
         if(!current().expanded&&n>1){fieldList(f.label,isTotk()?tears.elements(*save,f.field):game.elements(*save,f.field),f.field.name);current().expanded=true;}else editField(f);
     }
     void review(){
@@ -201,6 +205,7 @@ public:
     bool matches(const std::string& value) const {if(stack.back().filter.empty())return true;auto lower=[](std::string s){for(char& c:s)c=char(std::tolower(static_cast<unsigned char>(c)));return s;};return lower(value).find(lower(stack.back().filter))!=std::string::npos;}
     std::string shown(const EditField& f) const {auto value=displayValue(*save,f);if(f.unit.empty())return value;std::string unit=f.unit;if(value=="1"&&(unit=="wheels"||unit=="hearts"||unit=="seconds"||unit=="rupees"))unit.pop_back();return value+(unit=="%"?"":" ")+unit;}
     std::string location(const Slot& s) const {auto it=metadata.locations.find(s.location);return it!=metadata.locations.end()?it->second:s.location.empty()?(s.game==Game::Totk?"Save slot "+s.folder.substr(5):"Unknown location"):readable(s.location);}
+    #include "ui_totk.inc"
     std::vector<Row> rows(){
         std::vector<Row> r;auto view=current().view;
         if(save&&(view==View::Item||view==View::Modifiers)){
@@ -208,6 +213,7 @@ public:
             if(item==all.end()){while(stack.size()>1&&current().view!=View::Inventory)stack.pop_back();return rows();}
             current().item=*item;if(view==View::Item)current().title=metadata.itemName(item->id);
         }
+        if(isTotk()&&save&&totkRows(view,r))return r;
         if(view==View::Games){
             r.push_back({"Breath of the Wild","Nintendo Switch","Open",[this]{selectGame(Game::Botw);}});
             r.push_back({"Tears of the Kingdom","Nintendo Switch · Experimental support","Open",[this]{selectGame(Game::Totk);}});
@@ -221,12 +227,7 @@ public:
             r.push_back({"Profile 2 · Inactive location",std::to_string(swapState.normal[1])+" normal saves","",[this]{message("Profile 2","The second profile was introduced with the Switch 2 edition. Saves stored here are editable but cannot be played in this location on this Switch.");}});
             r.push_back({"What moves?","Normal saves, save thumbnails and normal Hero's Path","Details",[this]{message("Normal-save swap","Each set's six normal save slots, their save pictures and normal Hero's Path move together. Albums and compendium pictures stay in place, so these images may differ after a swap. All originals are retained in the verified full backup.");}});
         }
-        else if(view==View::Sections&&isTotk()){
-            r.push_back({"Player","Hearts, stamina wheels, battery cells and rupees","",[this]{fieldList("Player",tears.stats(*save));current().expanded=true;}});
-            r.push_back({"Inventory","Add, replace, duplicate and customize items","",[this]{push(View::Inventory,"Inventory",metadata.names.empty()?"Item IDs shown · Reload game resources in Settings":"L / R changes section");}});
-            r.push_back({"Saved position","Link's saved coordinates","",[this]{fieldList("Saved position",tears.matching(*save,[](auto& f){return f.name=="PlayerStatus.SavePos";}),"Coordinates apply in the currently saved map");}});
-            r.push_back({"About TOTK support","Experimental · Player and inventory editing","Details",[this]{message("TOTK alpha","Manage your ordinary inventory, equipment, meals and player values. Temporary challenge inventory is preserved. Key item creation, fusion replacement, horses, quests and world completion are still in development. Saving requires confirmation and a verified backup.");}});
-        }else if(view==View::Choices){
+        else if(view==View::Choices){
             auto field=current().choice;for(auto option:field.choices)r.push_back({option.second,"",save->word(field.field.hash,field.index)==option.first?"Selected":"",[this,field,option]{setValue(*save,field,std::to_string(option.first));back();platform.cue(Cue::Confirm);}});
         }else if(view==View::Sections){
             r.push_back({"Player","Hearts, stamina, rupees and abilities","",[this]{fieldList("Player",game.stats(*save));}});
@@ -242,11 +243,13 @@ public:
             r.push_back({"About",std::string("Zelda Save Editor · ")+Version,"StockiestThree9",[this]{message("Zelda Save Editor","Created by StockiestThree9. Native editor code written for this project. Uses libnx, SDL, FreeType, HarfBuzz and libpulsar. Feature reference: Marc Robledo's web save editor. Format reference: ZeldaMods. Nintendo sounds, fonts and game data are read from your console.");}});
             r.push_back({"Game resources",platform.resourceStatus,"Reload",[this]{busy("Reading game resources","Loading names and definitions from your installed game",[&]{metadata={};platform.loadMetadata(metadata,selectedGame);if(save&&isTotk())tears.definitions(*save);});notice(platform.resourceStatus);}});
         }else if(view==View::Fields){
-            for(auto field:current().fields){if(!matches(field.label+" "+field.field.name))continue;size_t n=save->count(field.field.hash)/(field.field.kind==Kind::String?field.field.width:1);
+            for(auto field:current().fields){if(!matches(field.label+" "+field.field.name))continue;size_t n=fieldCount(field.field);
                 std::string value=!current().expanded&&n>1?std::to_string(n)+" entries":shown(field);
                 r.push_back({field.label,field.description,value,[this,field]{chooseField(field);}});
             }
-            if(current().title=="Amiibo"&&current().filter.empty())r.insert(r.begin(),{"Reset today's scans","Keeps your total scan history","",[this]{confirm("Reset amiibo scans?","Clear today's scan history so amiibo can be scanned again.","Reset scans",[this]{game.resetAmiibo(*save);notice("Daily scan history cleared");});}});
+            if(!isTotk()&&current().title=="Amiibo"&&current().filter.empty())r.insert(r.begin(),{"Reset today's scans","Keeps your total scan history","",[this]{confirm("Reset amiibo scans?","Clear today's scan history so amiibo can be scanned again.","Reset scans",[this]{game.resetAmiibo(*save);notice("Daily scan history cleared");});}});
+            if(isTotk()&&current().title=="Compendium"&&current().filter.empty())r.insert(r.begin(),{"Unlock missing entries","Stock pictures; keeps entries you photographed","Apply",[this]{confirm("Unlock missing compendium entries?","Missing entries will use the game's stock picture state. Your photographed entries stay unchanged.","Unlock",[this]{tears.unlockCompendium(*save);notice("Compendium updated");});}});
+            if(isTotk()&&current().title=="Player")r.push_back({"Abilities","Ultrahand, Fuse, Ascend, Recall, Autobuild and amiibo","",[this]{push(View::Abilities,"Abilities");}});
         }else if(view==View::Inventory){
             for(auto item:items()){if(item.group!=current().group||!matches(metadata.itemName(item.id)+" "+item.id))continue;
                 if(isTotk()){r.push_back({metadata.itemName(item.id),tears.itemDetail(*save,item),tears.itemValue(*save,item),[this,item]{push(View::Item,metadata.itemName(item.id),tears.itemDetail(*save,item));current().item=item;}});continue;}
@@ -256,6 +259,9 @@ public:
             }
             if(!isTotk()||tears.canManage(current().group))r.push_back({"Add item","Choose from your game's item catalogue",isTotk()?std::to_string(tears.availableSlots(*save,current().group))+" free":"+",[this]{auto group=current().group;push(View::Picker,"Add item",sectionName(group));current().group=group;}});
             if(isTotk()&&(current().group==ItemGroup::Materials||current().group==ItemGroup::Arrows||current().group==ItemGroup::Unknown))r.push_back({"Fill stacks","Set the quantity of every owned item in this section to 999","",[this]{auto group=current().group;confirm("Fill these stacks?","All owned "+sectionName(group)+" stacks in the ordinary pouch will be set to 999. This can be undone before saving.","Fill stacks",[this,group]{tears.fillStacks(*save,group);notice("Stacks filled");});}});
+            if(isTotk()&&(current().group==ItemGroup::Weapons||current().group==ItemGroup::Bows||current().group==ItemGroup::Shields))r.push_back({"Repair all equipment","Restore verified durability and existing bonuses","Apply",[this]{auto group=current().group;confirm("Repair this equipment?","Repairs owned equipment with verified game stats. Fusion identities and bonuses are retained.","Repair",[this,group]{tears.repairEquipment(*save,group);notice("Equipment repaired");});}});
+            if(isTotk()&&current().group==ItemGroup::Armor)r.push_back({"Upgrade all armor","Highest verified stars; keeps hood position and dye","Apply",[this]{confirm("Upgrade owned armor?","Upgrades each supported item to its highest verified rank. Hood position and dye stay as selected.","Upgrade",[this]{tears.upgradeArmor(*save);notice("Armor upgraded");});}});
+            if(isTotk()&&current().group==ItemGroup::Weapons)r.push_back({"Restore pristine variants","Keeps durability, equipment bonuses and fusion","Apply",[this]{confirm("Restore pristine weapons?","Switches owned weapons with a verified pristine variant. Durability and attachments stay as saved.","Restore",[this]{tears.restorePristine(*save);notice("Weapon conditions updated");});}});
         }else if(view==View::Item){auto item=current().item;
             if(isTotk())for(auto property:{VariantProperty::Stars,VariantProperty::Style,VariantProperty::Condition}){
                 auto choices=tears.variantOptions(*save,item.group,item.id,property);if(choices.size()<2)continue;
@@ -271,6 +277,7 @@ public:
                 else if(f.label=="Equipped")r.push_back({f.label,"",displayValue(*save,f),[this,item]{game.equipItem(*save,item);}});
                 else r.push_back({f.label,f.description,shown(f),[this,f]{editField(f);}});
             }
+            if(isTotk()&&(item.group==ItemGroup::Weapons||item.group==ItemGroup::Shields))r.push_back({"Fused attachment","Choose a material or equipment attachment","Choose",[this,item]{push(View::FusionPicker,"Fused attachment",metadata.itemName(item.id));current().item=item;}});
             if(isTotk()&&tears.canManage(item)&&tears.canDuplicate(item.group))r.push_back({"Duplicate item",item.group==ItemGroup::Armor?"Copies upgrade level, appearance and dye":item.group==ItemGroup::Food?"Copies meal values and ingredients":item.group==ItemGroup::Bows?"Copies durability and bonuses":"Copies durability, bonuses and fused material","",[this,item]{tears.duplicateItem(*save,item);notice("Item duplicated");}});
             if(isTotk()&&tears.itemDetail(*save,item).find("Fused: ")!=std::string::npos)r.push_back({"Remove fused material","Keeps the base item and its current durability","",[this,item]{confirm("Remove fused material?","The attachment and its fuse bonus will be removed. The base item stays in your pouch.","Remove fuse",[this,item]{tears.clearFusion(*save,item);current().subtitle=tears.itemDetail(*save,item);notice("Fused material removed");});}});
             if(!isTotk()||tears.canManage(item))r.push_back({"Remove item","This can be undone before saving","",[this,item]{confirm("Remove this item?",metadata.itemName(item.id),"Remove",[this,item]{if(isTotk())tears.removeItem(*save,item);else game.removeItem(*save,item);stack.pop_back();notice("Item removed");});},true});
@@ -347,7 +354,7 @@ public:
         std::string controls=current().view==View::Games?"X  Settings    B  Exit    A  Select":"X  Settings    B  Back    A  Select";
         if(current().view==View::Settings)controls="B  Back    A  Select";
         if(current().view==View::Slots&&!isTotk())controls=current().saveTab==SaveTab::Normal||current().saveTab==SaveTab::Profile2?"L / R  Tabs    Y  Swap saves    X  Settings    B  Back    A  Select":"L / R  Tabs    X  Settings    B  Back    A  Select";
-        if(save&&current().view!=View::Settings){controls="ZL  Undo    ZR  Redo    ";if(current().view==View::Picker&&isTotk()&&catalogFilters(current().group).size()>1)controls="L/R  Filter    ";if(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)controls+="Y  Search    ";controls+="+  Save    X  Settings    B  Back    A  Select";}
+        if(save&&current().view!=View::Settings){controls="ZL  Undo    ZR  Redo    ";if(current().view==View::Picker&&isTotk()&&catalogFilters(current().group).size()>1)controls="L/R  Filter    ";if(searchable())controls+="Y  Search    ";controls+="+  Save    X  Settings    B  Back    A  Select";}
         c.text(controls,330,670,21,c.p.text,890,true);
     }
     void loading(const std::string& title,const std::string& sub){
@@ -471,7 +478,7 @@ public:
             if(input.down&ZL){auto label=save->undoLabel();if(save->undo()){notice("Undid "+label);historyChanged();}else notice("Nothing to undo");return;}
             if(input.down&ZR){if(save->redo()){notice("Edit restored");historyChanged();}else notice("Nothing to redo");return;}
         }
-        if(input.down&Y&&(current().view==View::Fields||current().view==View::Inventory||current().view==View::Picker)){tryAction([this]{search();});return;}
+        if(input.down&Y&&(searchable())){tryAction([this]{search();});return;}
         if(current().view==View::Picker&&isTotk()&&(input.down&(L|R))){int count=int(catalogFilters(current().group).size());current().catalogFilter=(current().catalogFilter+((input.down&R)?1:count-1))%count;current().selected=0;current().scroll=0;dirty=true;rebuild=true;platform.cue(Cue::Focus);return;}
         if(current().view==View::Inventory&&(input.down&(L|R))){int direction=(input.down&R)?1:-1;current().group=ItemGroup((int(current().group)+direction+9)%9);current().selected=0;current().scroll=0;platform.cue(Cue::Focus);dirty=true;rebuild=true;return;}
         auto& f=current();int movement=0;int cols=f.view==View::Profiles?4:1;

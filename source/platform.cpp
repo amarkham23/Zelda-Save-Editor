@@ -319,7 +319,7 @@ std::string Platform::swapProfiles(const Profile& p,bool resume){
     auto result=exchangeProfiles(root,backup,commit);log("Exchanged normal BOTW saves and normal Hero's Path. Full backup: "+result);return result;
 }
 void Platform::loadMetadata(Metadata& data,Game selected){
-    if(selected==Game::Totk){loadTotkNames(data,dataPath(),[this](auto& message){log(message);});resourceStatus=data.names.empty()?"TOTK names unavailable · item IDs shown":data.variants.empty()?"TOTK names loaded · reload for item options":"TOTK item names and options loaded";return;}
+    if(selected==Game::Totk){loadTotkNames(data,dataPath(),[this](auto& message){log(message);});resourceStatus=data.names.empty()?"TOTK names unavailable - item IDs shown":data.enums.empty()?"TOTK items loaded - reload for world and horse choices":"Items, quests and "+std::to_string(data.world.size())+" world records loaded";return;}
     const auto cache=dataPath()+"/cache";fs::create_directories(cache);
 #ifdef __SWITCH__
     bool mounted=false,raw=false;FsFileSystem game{};

@@ -1,5 +1,15 @@
 # Changes
 
+## 0.1.5 alpha 5 (TOTK feature expansion)
+
+- Group the TOTK save menu into Player, Inventory, World & completion, Horses, Autobuild and Advanced. Long lists support search; repeated browsing returns through a stable menu stack.
+- Read named enums, quests, attachment stats and world records from the installed game. Cache those resources privately on the SD card; no game resources are included in the release.
+- Add fusion replacement, bulk equipment repair, owned armor upgrades, pristine weapon conversion and spawn eligibility. Collectible key stacks can be added or removed; story identities remain protected.
+- Edit registered horse names, bond, health, speed stars, stamina spurs, pull stars and tack. Add checked UTF-8/UTF-16 conversion, packed boolean edits and fixed-size binary transactions to the byte-preserving document.
+- Browse and edit Korok, shrine, lightroot, tower, Bubbulfrog, cave, well, chasm and location flags. Derive Bubbulfrogs from active game placements rather than unused save-table entries. Add compendium unlocking, direct quest stages, map stamps, daily amiibo reset and paired ability ownership controls.
+- Export/import Autobuild slots in the app's checksummed `.zsbp` format and manage the eight favorites. Other blueprint slots and unrelated save data are retained.
+- Verify new edits against a real development save and installed 1.4.3 resources, including exact undo/redo, rejected input, targeted bytes, both game interfaces and the Switch build. Gameplay acceptance of the new edits remains to be done.
+
 ## 0.1.5 alpha 4 (quality pass)
 
 - Reject BOTW pouch limits below the number of owned items and current hearts above the maximum.

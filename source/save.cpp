@@ -53,8 +53,29 @@ Save::Save(Bytes data) : data_(std::move(data)), original_(data_) {
       auto &f = pair.second;
       uint32_t type = uint32_t(f.type);
       types_[pair.first] = type;
-      // Map only directly editable 32-bit cells. Packed booleans, binary
-      // payloads, wide strings and 64-bit keys remain preserved and hidden.
+      indirect_.emplace(pair.first, Indirect{type, f.offset, f.count, f.width, f.extent});
+      if (type == 1 || (type >= 26 && type <= 31)) {
+        size_t cells = type == 1 ? (f.count + 31) / 32 : f.width / 4 * f.count;
+        for (size_t i = 0; i < cells; ++i) {
+          fields_[pair.first].push_back(f.offset + i * 4);
+          editableOffsets_.push_back(f.offset + i * 4);
+        }
+        continue;
+      }
+      if (type == 18 || type == 19) {
+        size_t at = f.offset;
+        for (size_t i = 0; i < f.count; ++i) {
+          const size_t size = read(at);
+          at += 4;
+          // Fixed, aligned payloads can be journaled without relocating data.
+          if (size % 4 == 0 && at % 4 == 0)
+            for (size_t n = 0; n < size; n += 4)
+              editableOffsets_.push_back(at + n);
+          at += size;
+        }
+        continue;
+      }
+      // Unknown and 64-bit object-key layouts remain preserved.
       if (type == 1 || type >= 18)
         continue;
       size_t cells = type == 0 ? 1 : f.width / 4 * f.count;
@@ -192,6 +213,95 @@ void Save::string(uint32_t h, size_t width, size_t index,
     }
   }
 }
+
+size_t Save::logicalCount(uint32_t h) const {
+  auto it = indirect_.find(h);
+  return it == indirect_.end() ? count(h) : it->second.count;
+}
+bool Save::boolean(uint32_t h, size_t i) const {
+  auto type = types_.find(h);
+  if (game_ != Game::Totk || type == types_.end() || type->second > 1)
+    throw Error("That field is not a TOTK boolean.");
+  if (i >= logicalCount(h)) throw Error("Boolean index is out of range.");
+  return type->second == 0 ? word(h, i) != 0 : ((word(h, i / 32) >> (i % 32)) & 1) != 0;
+}
+void Save::boolean(uint32_t h, size_t i, bool value) {
+  boolean(h, i); // Validate type and index before modifying a shared packed word.
+  if (types_.at(h) == 0) word(h, i, value ? 1 : 0);
+  else {
+    const uint32_t mask = uint32_t(1) << (i % 32);
+    word(h, i / 32, value ? word(h, i / 32) | mask : word(h, i / 32) & ~mask);
+  }
+}
+std::string Save::wideString(uint32_t h, size_t i) const {
+  auto it = indirect_.find(h);
+  if (it == indirect_.end() || it->second.type < 26 || it->second.type > 31 || i >= it->second.count)
+    throw Error("That field is not a valid wide string.");
+  const auto &f = it->second;
+  std::string out;
+  auto append = [&](uint32_t c) {
+    if (c < 0x80) out += char(c);
+    else if (c < 0x800) { out += char(0xc0 | (c >> 6)); out += char(0x80 | (c & 63)); }
+    else if (c < 0x10000) { out += char(0xe0 | (c >> 12)); out += char(0x80 | ((c >> 6) & 63)); out += char(0x80 | (c & 63)); }
+    else { out += char(0xf0 | (c >> 18)); out += char(0x80 | ((c >> 12) & 63)); out += char(0x80 | ((c >> 6) & 63)); out += char(0x80 | (c & 63)); }
+  };
+  for (size_t n = 0; n < f.width; n += 2) {
+    size_t at = f.offset + i * f.width + n;
+    uint32_t c = uint32_t(data_[at]) | (uint32_t(data_[at + 1]) << 8);
+    if (!c) break;
+    if (c >= 0xd800 && c <= 0xdbff) {
+      if (n + 4 > f.width) throw Error("Incomplete UTF-16 name.");
+      uint32_t lo = uint32_t(data_[at + 2]) | (uint32_t(data_[at + 3]) << 8);
+      if (lo < 0xdc00 || lo > 0xdfff) throw Error("Invalid UTF-16 name.");
+      c = 0x10000 + ((c - 0xd800) << 10) + lo - 0xdc00; n += 2;
+    } else if (c >= 0xdc00 && c <= 0xdfff) throw Error("Invalid UTF-16 name.");
+    append(c);
+  }
+  return out;
+}
+void Save::wideString(uint32_t h, size_t i, const std::string &value) {
+  if (!editing_) throw Error("An edit transaction is required.");
+  wideString(h, i);
+  const auto &f = indirect_.at(h);
+  Bytes encoded;
+  auto unit = [&](uint16_t c) { encoded.push_back(uint8_t(c)); encoded.push_back(uint8_t(c >> 8)); };
+  for (size_t n = 0; n < value.size();) {
+    uint32_t c = uint8_t(value[n++]); unsigned extra = 0; uint32_t minimum = 0;
+    if (c >= 0xf0 && c <= 0xf4) { c &= 7; extra = 3; minimum = 0x10000; }
+    else if (c >= 0xe0 && c <= 0xef) { c &= 15; extra = 2; minimum = 0x800; }
+    else if (c >= 0xc2 && c <= 0xdf) { c &= 31; extra = 1; minimum = 0x80; }
+    else if (c >= 0x80) throw Error("Enter valid UTF-8 text.");
+    for (unsigned j = 0; j < extra; ++j) {
+      if (n >= value.size() || (uint8_t(value[n]) & 0xc0) != 0x80) throw Error("Enter valid UTF-8 text.");
+      c = (c << 6) | (uint8_t(value[n++]) & 63);
+    }
+    if (!c || c < minimum || c > 0x10ffff || (c >= 0xd800 && c <= 0xdfff)) throw Error("Enter valid UTF-8 text.");
+    if (c < 0x10000) unit(uint16_t(c));
+    else { c -= 0x10000; unit(uint16_t(0xd800 | (c >> 10))); unit(uint16_t(0xdc00 | (c & 1023))); }
+  }
+  if (encoded.size() + 2 > f.width) throw Error("That name is too long.");
+  encoded.resize(f.width, 0);
+  std::copy(encoded.begin(), encoded.end(), data_.begin() + f.offset + i * f.width);
+}
+Bytes Save::binary(uint32_t h, size_t i) const {
+  auto it = indirect_.find(h);
+  if (it == indirect_.end() || (it->second.type != 18 && it->second.type != 19) || i >= it->second.count)
+    throw Error("That binary slot is unavailable.");
+  size_t at = it->second.offset;
+  for (size_t n = 0; n < i; ++n) at += 4 + read(at);
+  size_t size = read(at);
+  return Bytes(data_.begin() + at + 4, data_.begin() + at + 4 + size);
+}
+void Save::binary(uint32_t h, size_t i, const Bytes &value) {
+  if (!editing_) throw Error("An edit transaction is required.");
+  auto old = binary(h, i);
+  if (value.size() != old.size() || value.size() % 4) throw Error("The blueprint must match this slot's fixed data size.");
+  size_t at = indirect_.at(h).offset;
+  for (size_t n = 0; n < i; ++n) at += 4 + read(at);
+  if (at % 4) throw Error("This binary layout is not editable.");
+  std::copy(value.begin(), value.end(), data_.begin() + at + 4);
+}
+
 void Save::edit(const std::string &label, const std::function<void()> &action) {
   if (editing_)
     throw Error("Nested edits are not supported.");

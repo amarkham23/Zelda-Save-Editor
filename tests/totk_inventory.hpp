@@ -73,9 +73,27 @@ static void testInventory(const Bytes &original) {
                               [&](auto &i) { return model.canManage(i); });
     if (group == ItemGroup::KeyItems) {
       auto before = save.bytes();
-      refuses([&] { model.removeItem(save, all.front()); },
-              "Key item removal was allowed");
+      auto protectedItem = std::find_if(all.begin(), all.end(), [&](auto& i){return !model.canManage(i);});
+      require(protectedItem != all.end(), "No protected key item in fixture");
+      refuses([&] { model.removeItem(save, *protectedItem); },
+              "Story key item removal was allowed");
       require(save.bytes() == before, "Rejected removal modified bytes");
+      require(first != all.end(), "No collectible key stack in fixture");
+      auto collectible = *first;
+      model.removeItem(save, collectible);
+      require(inGroup(group).size() == all.size() - 1,
+              "Collectible key stack removal failed");
+      normalOnly(before, group);
+      auto added = model.addItem(save, group, collectible.id);
+      require(save.integer(totk::hash("Pouch.KeyItem.Content.StockNum"),
+                           added.ordinal) == 1,
+              "New collectible key stack has wrong quantity");
+      normalOnly(before, group);
+      auto after = save.bytes();
+      refuses([&] { model.addItem(save, group, collectible.id); },
+              "Duplicate collectible key stack was allowed");
+      require(save.bytes() == after, "Rejected duplicate changed bytes");
+      undoAll();
       continue;
     }
     require(first != all.end(), "No manageable fixture item");

@@ -32,10 +32,10 @@ The `licenses/` directory accompanies the binary package. Source for libpulsar i
 - Marc Robledo's BOTW web editor: feature organization and publicly visible behavior. No implementation or static game-data tables imported.
 - ZeldaMods: Save Files, SARC, BYML, MSBT and Yaz0 format descriptions. The readers in this project are new implementations.
 - Sphaira: verified that qlaunch's sound archive can be mounted and decoded locally. No Sphaira application code is included.
-- TOTK: [TotkMods SAV specification](https://github.com/TotkMods/Research/blob/7e85f7441ec35239a403e8a3b486eba2b7bd6b9e/Formats/Sav/Readme.md) and field identifiers / observable behavior in Marc Robledo's TOTK editor. The binary reader and editing model are original implementations. No reference editor implementation, static game tables or downloadable test save is included.
+- TOTK: [TotkMods SAV specification](https://github.com/TotkMods/Research/blob/7e85f7441ec35239a403e8a3b486eba2b7bd6b9e/Formats/Sav/Readme.md) and selected field identifiers, horse stat encodings and observable behavior in Marc Robledo's TOTK editor. Selected format facts are checked against installed resources and the development save. The binary reader and editing model are original implementations. No reference editor implementation, static game tables or downloadable test save is included.
 
 ## Console-owned resources
 
-The app opens the console's HOME menu archive and requests named cues through libpulsar. It obtains the shared font from the system font service. Item labels and field definitions are read from the user's installed BOTW resources. These resources are not part of the NRO or public source package.
+The app opens the console's HOME menu archive and requests named cues through libpulsar. It obtains the shared font from the system font service. Item labels and field definitions are read from the user's installed BOTW resources; TOTK choices, quest titles and world records come from the installed TOTK resources. Local resource caches are private. These resources are not part of the NRO or public source package.
 
 The app's quill-and-scroll icon was generated for this project. It is the only artwork embedded in the NRO; its source and generation prompt are in `artwork/`.

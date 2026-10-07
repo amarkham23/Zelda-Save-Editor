@@ -129,6 +129,9 @@ bool belongs(const std::string &id, ItemGroup group) {
     return false;
   }
 }
+bool ordinaryKey(const std::string &id) {
+  return id == "Obj_KorokNuts" || id == "Obj_DungeonClearSeal" || id == "Obj_CaveMasterMedal" || id == "Obj_SageWill";
+}
 bool specialWeapon(const std::string &id) {
   return id == "Weapon_Sword_070" || id == "Weapon_Sword_071" ||
          id == "Weapon_Sword_001_Decayed";
@@ -163,10 +166,10 @@ size_t Totk::availableSlots(const Save &s, ItemGroup group) const {
   return limit - occupied;
 }
 bool Totk::canManage(ItemGroup group) const {
-  return group != ItemGroup::KeyItems;
+  return unsigned(group) < 9;
 }
 bool Totk::canManage(const Item &item) const {
-  return canManage(item.group) && !specialWeapon(item.id);
+  return canManage(item.group) && !specialWeapon(item.id) && (item.group != ItemGroup::KeyItems || ordinaryKey(item.id));
 }
 bool Totk::canDuplicate(ItemGroup group) const {
   return group == ItemGroup::Weapons || group == ItemGroup::Bows ||
@@ -180,17 +183,19 @@ std::vector<std::string> Totk::catalog(const Save &s, ItemGroup group) const {
   for (auto &pair : metadata.names) {
     auto h = totk::hash("IsGet." + pair.first);
     auto it = s.types().find(h);
-    if (belongs(pair.first, group) && !specialWeapon(pair.first) &&
+    auto variant = metadata.variants.find(pair.first);
+    bool keyItem = group == ItemGroup::KeyItems && ordinaryKey(pair.first) && variant != metadata.variants.end() && variant->second.category == "KeyItem";
+    if ((belongs(pair.first, group) || keyItem) && !specialWeapon(pair.first) &&
         s.count(h) == 1 && it != s.types().end() && it->second == 0)
       ids.insert(pair.first);
   }
   // Existing items remain usable when the installed message archive is
   // unavailable.
   for (auto &pair : originalItems)
-    if (pair.second == group && !specialWeapon(pair.first))
+    if (pair.second == group && canManage(Item{pair.first,0,0,group}))
       ids.insert(pair.first);
   for (auto &item : items(s))
-    if (item.group == group && !specialWeapon(item.id))
+    if (item.group == group && canManage(item))
       ids.insert(item.id);
   return {ids.begin(), ids.end()};
 }
@@ -214,7 +219,7 @@ Item Totk::addItem(Save &s, ItemGroup group, const std::string &id) const {
          !s.string(totk::hash(key + "Name"), 64, target).empty())
     ++target;
   if (group == ItemGroup::Materials || group == ItemGroup::Arrows ||
-      group == ItemGroup::Unknown) {
+      group == ItemGroup::Unknown || group == ItemGroup::KeyItems) {
     for (size_t i = 0; i < cap; ++i)
       if (s.string(totk::hash(key + "Name"), 64, i) == id)
         throw Error("You already have this item. Edit its quantity instead.");
@@ -243,7 +248,7 @@ void Totk::replaceItem(Save &s, const Item &item, const std::string &id) const {
   if (item.group == ItemGroup::Armor && part(item.id) != part(id))
     throw Error("Choose armor for the same body part.");
   if (item.group == ItemGroup::Materials || item.group == ItemGroup::Arrows ||
-      item.group == ItemGroup::Unknown)
+      item.group == ItemGroup::Unknown || item.group == ItemGroup::KeyItems)
     for (auto &other : items(s))
       if (other.group == item.group && other.id == id)
         throw Error("That item already has a stack.");

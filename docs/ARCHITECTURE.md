@@ -11,7 +11,7 @@ The existing personal fork was preserved in its original directory and was not u
 
 ## Layers
 
-`save.cpp` owns BOTW's byte-preserving document and edit journal. The format is a header, repeated hash/value words, and a trailing marker. A transaction may change existing value bytes only. Failed transactions restore their snapshot, including failures while building the edit journal. Change counts are updated after transactions and while undoing/redoing patches; redraws do not scan the save. A no-op load does not reserialize or reorder the input.
+`save.cpp` owns the shared byte-preserving document and edit journal. BOTW uses a header, repeated hash/value words, and a trailing marker; `totk_format.cpp` validates TOTK's typed field table and indirect arrays. A transaction may change existing value bytes only. Failed transactions restore their snapshot, including failures while building the edit journal. Change counts are updated after transactions and while undoing/redoing patches; redraws do not scan the save. A no-op load does not reserialize or reorder the input. TOTK packed booleans change one bit, UTF-16 names validate UTF-8 and surrogate pairs, and aligned binary payloads require their original length. Array counts, offsets, sparse keys and headers remain immutable.
 
 `resources.cpp` contains bounded SARC, Yaz0, BYML and MSBT readers. It derives field types and item labels from installed game resources. Synthetic dictionary entries whose hashes do not match their names are skipped. No third-party editor tables are compiled into the application.
 
@@ -34,6 +34,10 @@ BOTW is the first module. Adding another Zelda game requires a format reader and
 `totk_variants.cpp` groups catalogue entries using the installed PouchActorInfo upgrade/conversion links, ActorInfo model relationships and GameActorInfo durability values. It uses explicit rank links, not numeric actor-ID arithmetic. Ambiguous links are not exposed as interchangeable choices. Names resolve duplicate internal armor parents only when one parent uniquely matches. Hylian Hood conversion preserves rank; pristine models are paired with their exact, unique decay counterpart within the same model project. Cosmetic aliases require identical model, category, performance and durability. Item family choices are separate from owned inventory copies.
 
 `totk_resources.cpp` decodes the three installed RSDB tables with the game's Zstandard dictionaries, caches a bounded length-prefixed `ZCA1` bundle and applies it only after all three tables parse. BYML v2–7 and checked 64-bit values are supported by the shared reader. Resources, item names and caches remain private. The options screen holds an uncommitted candidate until Add/Replace; existing-item variant edits journal only the item name, keeping every companion field unchanged.
+
+`totk_schema.cpp` reads selected enum sections from the installed GameDataList dictionary without expanding its large sparse object-key section. It checks enum hash/name relationships and reads quest stages and attachment damage from installed Challenge and AttachmentActorInfo tables. Quest titles come from the game's message archive. No external quest or item database is bundled.
+
+`totk_world.cpp` reads installed location and Korok tables, plus active Bubbulfrog actors from bounded placement files. It identifies existing save fields and verified state choices. Bulk actions change those fields only; they do not reconcile item rewards, sparse world-object keys or story progress. `totk_features.cpp` provides horse, map-stamp, fusion, repair, ability and Autobuild operations. Its original `.zsbp` format stores fixed-size build bytes, camera metadata and a checksum; imports preserve the destination favorite and other slots. `ui_totk.inc` contains the grouped TOTK feature pages, using the shared widgets and save workflow.
 
 ## Audio
 
