@@ -2,15 +2,15 @@
 
 <img src="icon.jpg" width="112" height="112" alt="Quill and scroll icon">
 
-**Author: StockiestThree9 · MIT license · Public beta**
+**Author: StockiestThree9 · MIT license · Public prerelease**
 
-A native Nintendo Switch save editor. The first game module supports **The Legend of Zelda: Breath of the Wild**.
+A native Nintendo Switch save editor for **The Legend of Zelda: Breath of the Wild**, with experimental **Tears of the Kingdom** support.
 
-This development branch adds **experimental Tears of the Kingdom support** in 0.1.5-alpha.5: player values and abilities, grouped inventory, fusion choices, bulk equipment tools, horses, world flags, compendium, quest stages, map stamps, amiibo reset and Autobuild import/export. See [TOTK features, setup and testing limits](docs/TOTK-ALPHA.md). The public beta linked below remains the BOTW release.
+Version **0.1.5-alpha.5** adds TOTK player values and abilities, grouped inventory, fusion choices, bulk equipment tools, horses, world flags, compendium, quest stages, map stamps, amiibo reset and Autobuild import/export. See [TOTK features, setup and testing limits](docs/TOTK-ALPHA.md).
 
-**[Download v0.1.4-beta.1](https://github.com/amarkham23/Zelda-Save-Editor/releases/tag/v0.1.4-beta.1)** · [Report a bug](https://github.com/amarkham23/Zelda-Save-Editor/issues) · [Changes](docs/CHANGES.md)
+**[Download v0.1.5-alpha.5](https://github.com/amarkham23/Zelda-Save-Editor/releases/tag/v0.1.5-alpha.5)** · [Previous BOTW beta](https://github.com/amarkham23/Zelda-Save-Editor/releases/tag/v0.1.4-beta.1) · [Report a bug](https://github.com/amarkham23/Zelda-Save-Editor/issues) · [Changes](docs/CHANGES.md)
 
-This is the first public beta. Keep an independent backup of your saves before editing. Browsing and audio have been tested on an OLED Switch; live save-and-reload and gameplay after profile swaps still need wider device testing. See [validation and limits](docs/VALIDATION.md).
+This is a public testing release. Keep an independent backup of your saves before editing. Browsing and audio have been tested on an OLED Switch. The expanded TOTK edits pass host fixture and UI tests, but edited-save gameplay acceptance and fresh-install resource loading remain unverified. BOTW live save-and-reload and gameplay after profile swaps still need wider device testing. See [TOTK testing limits](docs/TOTK-ALPHA.md) and [BOTW validation](docs/VALIDATION.md).
 
 ![Compact game selection](docs/images/home-light.png)
 
@@ -39,17 +39,17 @@ The world/completion pages currently expose named game fields. They do not yet p
 
 Download the release ZIP and extract its `switch` folder to the root of your SD card. It installs `/switch/Zelda_Save_Editor.nro` and documentation/license notices under `/switch/zelda-save-editor/`. Existing cache, settings and backups are preserved. The standalone NRO is also available for updates.
 
-Requires an original Nintendo Switch with Atmosphere, application-mode homebrew and an accessible BOTW save and installed game resources. The current real-save fixture is BOTW 1.9.0; compatibility with other versions has not been comprehensively tested. This app runs on the original Switch family, including OLED; it is not a native Switch 2 application.
+Requires an original Nintendo Switch with Atmosphere, application-mode homebrew and an accessible save and installed resources for the selected game. BOTW testing uses a 1.9.0 fixture; TOTK resource tests use installed 1.4.3 data and one real save revision. Compatibility with other versions has not been comprehensively tested. This app runs on the original Switch family, including OLED; it is not a native Switch 2 application.
 
-Launch Sphaira in application mode by holding **R** while opening a game, then select **Zelda Save Editor**. Close BOTW before editing its saves.
+Launch Sphaira in application mode by holding **R** while opening the game you want to edit, then select **Zelda Save Editor**. Close the actual game before editing its saves.
 
-On first use, launching Sphaira over BOTW gives the resource reader a fallback if the installed-game mount is unavailable. Resource files are cached locally under `/switch/zelda-save-editor/cache/`. The distributed app contains no Nintendo game files, font files or audio samples.
+On first use, launching Sphaira over the selected game gives the resource reader a fallback if the installed-game mount is unavailable. Settings → Game resources retries loading. Resource files are cached locally under `/switch/zelda-save-editor/cache/`. The distributed app contains no Nintendo game files, font files or audio samples.
 
-Choose Breath of the Wild and a save slot. A user picker appears only if more than one console user is available. **A** opens an item or edits a value. **B** returns. **X** opens settings. **Y** searches applicable lists. **L/R** changes inventory sections. **ZL/ZR** undoes/redoes edits. **+** opens the save confirmation. Direction buttons select rows; they never edit numbers. In Settings, select Appearance with **A** to cycle Automatic, Light, Dark and OLED black.
+Choose a game and a save slot. A user picker appears only if more than one console user is available. **A** opens an item or edits a value. **B** returns. **X** opens settings. **Y** searches applicable lists. **L/R** changes inventory sections. **ZL/ZR** undoes/redoes edits. **+** opens the save confirmation. Direction buttons select rows; they never edit numbers. In Settings, select Appearance with **A** to cycle Automatic, Light, Dark and OLED black.
 
-Every save operation verifies a backup under `/switch/zelda-save-editor/backups/<console-user>/<time>-profile<number>-slot<encoded-location>/` before writing. The backup includes the original `game_data.sav`, its companion files and a note identifying the original folder. The editor changes only the selected slot's `game_data.sav`; the game's own save thumbnail and caption remain as originally captured until BOTW next saves.
+Every save operation verifies a backup under `/switch/zelda-save-editor/backups/` before writing. The backup includes the original save, its companion files and a note identifying the original folder. The editor changes only the selected slot's `game_data.sav` (BOTW) or `progress.sav` (TOTK); the game's own save thumbnail and caption remain as originally captured until the game next saves.
 
-### Switch 2 game profiles
+### BOTW Switch 2 game profiles
 
 The editor scans nested save folders as well as the original slots. Transferred saves retained under `ch_01/0` through `ch_01/7` are labeled **Profile 2**. Original root slots are **Profile 1**; slots 6 and 7 are identified as Master Mode. An unfamiliar folder remains discoverable as an additional save with its location shown, rather than being assigned a guessed profile.
 
@@ -59,7 +59,7 @@ Press **Y** on the Normal or Profile 2 tab to review **Swap normal saves**. This
 
 ## Build
 
-Install devkitPro's Switch toolchain and the SDL2, SDL2_image, SDL2_ttf, FreeType, HarfBuzz, PNG, JPEG, WebP, zlib, bzip2, Mesa and nouveau portlibs.
+Install devkitPro's Switch toolchain and the SDL2, SDL2_image, SDL2_ttf, FreeType, HarfBuzz, PNG, JPEG, WebP, zlib, bzip2, Zstandard (`switch-libzstd`), Mesa and nouveau portlibs.
 
 For a Git checkout, initialize submodules first. The source ZIP already includes libpulsar, so skip that command when building the ZIP.
 
@@ -82,7 +82,7 @@ Private saves and extracted game resources are deliberately excluded from the so
 
 ## Beta feedback
 
-Please report the app version, Switch firmware, Atmosphere version, BOTW version, launch method and steps to reproduce. State whether the problem involves Normal, Profile 2 or Master Mode. Do not attach save files, account identifiers or extracted Nintendo resources to public issues. [Backup and recovery notes](docs/PROFILE-SWAPS.md) explain the profile swap process.
+Please report the app version, Switch firmware, Atmosphere version, selected game and game version, launch method and steps to reproduce. For BOTW, state whether the problem involves Normal, Profile 2 or Master Mode. Do not attach save files, account identifiers or extracted Nintendo resources to public issues. [Backup and recovery notes](docs/PROFILE-SWAPS.md) explain the BOTW profile swap process.
 
 ## License
 

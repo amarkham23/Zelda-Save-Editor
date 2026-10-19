@@ -21,4 +21,6 @@ Built on Windows using MSYS2 and devkitPro, 2026-10-02.
 
 Application source is C++17. Exceptions remain enabled so malformed saves and failed writes return to the UI. The audio decoder is compiled separately as a C library.
 
+The 0.1.5 TOTK module additionally requires `switch-libzstd` and links with `-lzstd`. Desktop TOTK and storage tests also require a host Zstandard library. The table above records the original BOTW beta environment; it is not a complete dependency list for the newer TOTK module.
+
 The optional desktop preview uses the same renderer and editor code, host SDL libraries, Windows' local Segoe UI font, and a private `host-data/` directory. `--screenshots` renders preview images without writing a save. The desktop preview is a development tool, not a distributed game editor.
